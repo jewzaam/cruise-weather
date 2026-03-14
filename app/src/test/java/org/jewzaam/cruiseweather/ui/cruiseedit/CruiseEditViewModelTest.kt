@@ -139,21 +139,19 @@ class CruiseEditViewModelTest {
     }
 
     @Test
-    fun `geocodeDeparture auto-selects single candidate`() = runTest {
+    fun `departure geocoding auto-selects single candidate via debounce`() = runTest {
         val candidate = geocodingCandidate()
-        coEvery { geocodePortUseCase(query = any()) } returns Result.success(listOf(candidate))
+        coEvery { geocodePortUseCase(query = "Miami") } returns Result.success(listOf(candidate))
 
-        viewModel.onNameChange("test") // just to set up state
         viewModel.onDeparturePortNameChange("Miami")
-        // Directly call geocodeDeparture (bypassing debounce)
-        viewModel.geocodeDeparture()
+        advanceTimeBy(800)
         advanceUntilIdle()
 
         assertThat(viewModel.uiState.value.selectedDeparture).isEqualTo(candidate)
     }
 
     @Test
-    fun `geocodeDeparture shows multiple candidates without auto-selecting`() = runTest {
+    fun `departure geocoding shows multiple candidates without auto-selecting`() = runTest {
         val candidates = listOf(
             geocodingCandidate(id = 1, displayName = "Miami, FL, US"),
             geocodingCandidate(id = 2, displayName = "Miami Beach, FL, US"),
@@ -161,7 +159,7 @@ class CruiseEditViewModelTest {
         coEvery { geocodePortUseCase(query = "Miami") } returns Result.success(candidates)
 
         viewModel.onDeparturePortNameChange("Miami")
-        viewModel.geocodeDeparture()
+        advanceTimeBy(800)
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
@@ -170,20 +168,20 @@ class CruiseEditViewModelTest {
     }
 
     @Test
-    fun `geocodeDeparture sets error on failure`() = runTest {
+    fun `departure geocoding sets error on failure`() = runTest {
         coEvery { geocodePortUseCase(query = "fail") } returns Result.failure(RuntimeException("Network error"))
 
         viewModel.onDeparturePortNameChange("fail")
-        viewModel.geocodeDeparture()
+        advanceTimeBy(800)
         advanceUntilIdle()
 
         assertThat(viewModel.uiState.value.error).isEqualTo("Network error")
     }
 
     @Test
-    fun `geocodeDeparture does nothing when port name is blank`() = runTest {
+    fun `departure geocoding skipped when port name is blank`() = runTest {
         viewModel.onDeparturePortNameChange("")
-        viewModel.geocodeDeparture()
+        advanceTimeBy(800)
         advanceUntilIdle()
 
         assertThat(viewModel.uiState.value.isGeocodingDeparture).isFalse()
@@ -204,11 +202,11 @@ class CruiseEditViewModelTest {
     }
 
     @Test
-    fun `geocodeReturn sets error on failure`() = runTest {
+    fun `return geocoding sets error on failure`() = runTest {
         coEvery { geocodePortUseCase(query = "fail") } returns Result.failure(RuntimeException("error"))
 
         viewModel.onReturnPortNameChange("fail")
-        viewModel.geocodeReturn()
+        advanceTimeBy(800)
         advanceUntilIdle()
 
         assertThat(viewModel.uiState.value.error).isEqualTo("error")
@@ -274,7 +272,7 @@ class CruiseEditViewModelTest {
 
     @Test
     fun `saveCruise creates cruise with departure and return ports`() = runTest {
-        coEvery { cruiseRepository.saveCruise(any(), any()) } returns 5L
+        coEvery { cruiseRepository.saveCruise(any(), any(), any(), any()) } returns 5L
 
         viewModel.onNameChange("Caribbean")
         viewModel.onDepartureCandidateSelected(geocodingCandidate())
@@ -288,6 +286,8 @@ class CruiseEditViewModelTest {
             cruiseRepository.saveCruise(
                 match { it.name == "Caribbean" && it.returnPortName == null },
                 match { ports -> ports.size == 2 && ports[0].type == PortType.DEPARTURE && ports[1].type == PortType.RETURN },
+                any(),
+                any(),
             )
         }
     }
@@ -295,7 +295,7 @@ class CruiseEditViewModelTest {
     @Test
     fun `saveCruise with different return port sets returnPortName`() = runTest {
         val returnCandidate = geocodingCandidate(id = 2, displayName = "Fort Lauderdale")
-        coEvery { cruiseRepository.saveCruise(any(), any()) } returns 5L
+        coEvery { cruiseRepository.saveCruise(any(), any(), any(), any()) } returns 5L
 
         viewModel.onNameChange("Caribbean")
         viewModel.onDepartureCandidateSelected(geocodingCandidate())
@@ -308,13 +308,15 @@ class CruiseEditViewModelTest {
             cruiseRepository.saveCruise(
                 match { it.returnPortName == "Fort Lauderdale" },
                 any(),
+                any(),
+                any(),
             )
         }
     }
 
     @Test
     fun `saveCruise sets error on exception`() = runTest {
-        coEvery { cruiseRepository.saveCruise(any(), any()) } throws RuntimeException("DB error")
+        coEvery { cruiseRepository.saveCruise(any(), any(), any(), any()) } throws RuntimeException("DB error")
 
         viewModel.onNameChange("Test")
         viewModel.onDepartureCandidateSelected(geocodingCandidate())
@@ -354,7 +356,7 @@ class CruiseEditViewModelTest {
     // --- Save Diffing ---
 
     @Test
-    fun `saveCruise deletes removed ports and adds new ones`() = runTest {
+    fun `saveCruise passes deleted port ids and new ports to repository`() = runTest {
         // Simulate loading a cruise with existing ports
         val existingPort = port(id = 100, cruiseId = 1, portName = "Jamaica")
         val cwp = cruiseWithPorts(
@@ -366,9 +368,7 @@ class CruiseEditViewModelTest {
             ),
         )
         every { cruiseRepository.getCruiseWithPorts(1L) } returns flowOf(cwp)
-        coEvery { cruiseRepository.saveCruise(any(), any()) } returns 1L
-        coEvery { cruiseRepository.deletePortOfCall(any()) } returns Unit
-        coEvery { cruiseRepository.addPortOfCall(any()) } returns 200L
+        coEvery { cruiseRepository.saveCruise(any(), any(), any(), any()) } returns 1L
 
         viewModel.loadCruise(1L)
         advanceUntilIdle()
@@ -380,8 +380,14 @@ class CruiseEditViewModelTest {
         viewModel.saveCruise()
         advanceUntilIdle()
 
-        coVerify { cruiseRepository.deletePortOfCall(100L) }
-        coVerify { cruiseRepository.addPortOfCall(match { it.portName == "Grand Cayman" && it.cruiseId == 1L }) }
+        coVerify {
+            cruiseRepository.saveCruise(
+                any(),
+                any(),
+                match { ports -> ports.size == 1 && ports[0].portName == "Grand Cayman" },
+                match { ids -> ids == setOf(100L) },
+            )
+        }
     }
 
     // --- Load ---

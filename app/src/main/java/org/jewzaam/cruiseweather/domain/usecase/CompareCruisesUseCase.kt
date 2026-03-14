@@ -27,10 +27,7 @@ class CompareCruisesUseCase @Inject constructor(
 
             val rainiestPort = portWithWeatherList
                 .filter { it.summary != null }
-                .maxByOrNull { pww ->
-                    val s = pww.summary ?: return@maxByOrNull 0.0
-                    if (s.totalYearCount > 0) s.rainyYearCount.toDouble() / s.totalYearCount else 0.0
-                }
+                .maxByOrNull { it.summary?.rainProbabilityPct ?: 0.0 }
 
             val totalRainy = summaries.sumOf { it.rainyYearCount }
             val totalYears = summaries.sumOf { it.totalYearCount }
@@ -46,9 +43,7 @@ class CompareCruisesUseCase @Inject constructor(
                 avgHumidityPct = summaries.map { it.avgHumidityPct }.average(),
                 avgSunshineMins = summaries.map { it.avgSunshineMins }.average(),
                 rainiestPortName = rainiestPort?.port?.portName,
-                rainiestPortRainPct = rainiestPort?.summary?.let { s ->
-                    if (s.totalYearCount > 0) s.rainyYearCount.toDouble() / s.totalYearCount * 100.0 else null
-                },
+                rainiestPortRainPct = rainiestPort?.summary?.rainProbabilityPct,
                 portBreakdowns = portWithWeatherList,
             )
         }

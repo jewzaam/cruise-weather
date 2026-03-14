@@ -124,7 +124,24 @@ class CruiseEditViewModel @Inject constructor(
         if (value.trim().length >= 2) {
             departureGeocodeJob = viewModelScope.launch {
                 delay(800)
-                geocodeDeparture()
+                val query = _uiState.value.departurePortName.trim()
+                if (query.isBlank()) return@launch
+                _uiState.update { it.copy(isGeocodingDeparture = true, departureCandidates = emptyList()) }
+                geocodePortUseCase(query = query)
+                    .onSuccess { candidates ->
+                        _uiState.update { state ->
+                            val autoSelect = if (candidates.size == 1) candidates.first() else null
+                            state.copy(
+                                isGeocodingDeparture = false,
+                                departureCandidates = candidates,
+                                selectedDeparture = autoSelect ?: state.selectedDeparture,
+                                departurePortName = autoSelect?.displayName ?: state.departurePortName,
+                            )
+                        }
+                    }
+                    .onFailure { e ->
+                        _uiState.update { it.copy(isGeocodingDeparture = false, error = e.message) }
+                    }
             }
         }
     }
@@ -139,54 +156,25 @@ class CruiseEditViewModel @Inject constructor(
         if (value.trim().length >= 2) {
             returnGeocodeJob = viewModelScope.launch {
                 delay(800)
-                geocodeReturn()
+                val query = _uiState.value.returnPortName.trim()
+                if (query.isBlank()) return@launch
+                _uiState.update { it.copy(isGeocodingReturn = true, returnCandidates = emptyList()) }
+                geocodePortUseCase(query = query)
+                    .onSuccess { candidates ->
+                        _uiState.update { state ->
+                            val autoSelect = if (candidates.size == 1) candidates.first() else null
+                            state.copy(
+                                isGeocodingReturn = false,
+                                returnCandidates = candidates,
+                                selectedReturn = autoSelect ?: state.selectedReturn,
+                                returnPortName = autoSelect?.displayName ?: state.returnPortName,
+                            )
+                        }
+                    }
+                    .onFailure { e ->
+                        _uiState.update { it.copy(isGeocodingReturn = false, error = e.message) }
+                    }
             }
-        }
-    }
-
-    fun geocodeDeparture() {
-        val query = _uiState.value.departurePortName.trim()
-        if (query.isBlank()) return
-        viewModelScope.launch {
-            _uiState.update { it.copy(isGeocodingDeparture = true, departureCandidates = emptyList()) }
-            geocodePortUseCase(query = query)
-                .onSuccess { candidates ->
-                    _uiState.update { state ->
-                        val autoSelect = if (candidates.size == 1) candidates.first() else null
-                        state.copy(
-                            isGeocodingDeparture = false,
-                            departureCandidates = candidates,
-                            selectedDeparture = autoSelect ?: state.selectedDeparture,
-                            departurePortName = autoSelect?.displayName ?: state.departurePortName,
-                        )
-                    }
-                }
-                .onFailure { e ->
-                    _uiState.update { it.copy(isGeocodingDeparture = false, error = e.message) }
-                }
-        }
-    }
-
-    fun geocodeReturn() {
-        val query = _uiState.value.returnPortName.trim()
-        if (query.isBlank()) return
-        viewModelScope.launch {
-            _uiState.update { it.copy(isGeocodingReturn = true, returnCandidates = emptyList()) }
-            geocodePortUseCase(query = query)
-                .onSuccess { candidates ->
-                    _uiState.update { state ->
-                        val autoSelect = if (candidates.size == 1) candidates.first() else null
-                        state.copy(
-                            isGeocodingReturn = false,
-                            returnCandidates = candidates,
-                            selectedReturn = autoSelect ?: state.selectedReturn,
-                            returnPortName = autoSelect?.displayName ?: state.returnPortName,
-                        )
-                    }
-                }
-                .onFailure { e ->
-                    _uiState.update { it.copy(isGeocodingReturn = false, error = e.message) }
-                }
         }
     }
 
@@ -237,21 +225,14 @@ class CruiseEditViewModel @Inject constructor(
                 )
 
                 val departurePorts = buildDeparturePorts(cruise = cruise, state = state)
-                val savedId = cruiseRepository.saveCruise(cruise = cruise, departurePorts = departurePorts)
-
-                // Sync ports of call: delete removed, add new, update existing
                 val currentPortIds = state.portsOfCall.filter { it.id != 0L }.map { it.id }.toSet()
-                val deletedIds = originalPortIds - currentPortIds
-                for (id in deletedIds) {
-                    cruiseRepository.deletePortOfCall(id)
-                }
-                for (port in state.portsOfCall) {
-                    if (port.id == 0L) {
-                        cruiseRepository.addPortOfCall(port.copy(cruiseId = savedId))
-                    } else if (port.id in originalPortIds) {
-                        cruiseRepository.updatePortOfCall(port)
-                    }
-                }
+                val deletedPortIds = originalPortIds - currentPortIds
+                val savedId = cruiseRepository.saveCruise(
+                    cruise = cruise,
+                    departurePorts = departurePorts,
+                    portsOfCall = state.portsOfCall,
+                    deletedPortIds = deletedPortIds,
+                )
 
                 _uiState.update { it.copy(isLoading = false, isSaved = true) }
             } catch (e: Exception) {
@@ -314,13 +295,13 @@ class CruiseEditViewModel @Inject constructor(
 
     fun updatePortOfCall(port: PortOfCall) {
         _uiState.update { state ->
-            state.copy(portsOfCall = state.portsOfCall.map { if (it.id == port.id && it.date == port.date || it === port) port else it })
+            state.copy(portsOfCall = state.portsOfCall.map { if (it.localId == port.localId) port else it })
         }
     }
 
     fun deletePortOfCall(port: PortOfCall) {
         _uiState.update { state ->
-            state.copy(portsOfCall = state.portsOfCall.filter { it !== port && !(it.id != 0L && it.id == port.id) })
+            state.copy(portsOfCall = state.portsOfCall.filter { it.localId != port.localId })
         }
     }
 

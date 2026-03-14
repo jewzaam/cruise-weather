@@ -36,6 +36,7 @@ fun cruise(
 
 fun port(
     id: Long = 0L,
+    localId: String = java.util.UUID.randomUUID().toString(),
     cruiseId: Long = 1L,
     portName: String = "Cozumel",
     date: LocalDate = LocalDate.of(2026, 12, 16),
@@ -46,6 +47,7 @@ fun port(
     sortOrder: Int = 0,
 ) = PortOfCall(
     id = id,
+    localId = localId,
     cruiseId = cruiseId,
     portName = portName,
     date = date,

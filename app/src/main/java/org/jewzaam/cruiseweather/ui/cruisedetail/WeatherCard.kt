@@ -32,7 +32,6 @@ fun WeatherCard(
     port: PortOfCall?,
     summary: PortWeatherSummary?,
     dayNumber: Int,
-    isSeaDay: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val condition = deriveWeatherCondition(summary)
@@ -65,7 +64,7 @@ fun WeatherCard(
                         else -> null
                     }
                 }
-                val portName = if (isSeaDay) "At Sea" else port?.portName ?: ""
+                val portName = port?.portName ?: ""
                 val dateText = port?.let { DAY_FORMAT.format(it.date) } ?: ""
                 Text(
                     text = "Day $dayNumber  •  $dateText" + if (typeLabel != null) "  •  $typeLabel" else "",
@@ -91,9 +90,7 @@ fun WeatherCard(
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    val rainPct = if (summary.totalYearCount > 0) {
-                        (summary.rainyYearCount.toDouble() / summary.totalYearCount * 100.0).toInt()
-                    } else 0
+                    val rainPct = (summary.rainProbabilityPct ?: 0.0).toInt()
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
                             text = "Rain $rainPct%",
@@ -115,7 +112,7 @@ fun WeatherCard(
                         )
                     }
                 }
-            } else if (!isSeaDay) {
+            } else {
                 Text(
                     text = "No data",
                     style = MaterialTheme.typography.bodySmall,

@@ -3,12 +3,21 @@ package org.jewzaam.cruiseweather.data.local
 
 import androidx.room.TypeConverter
 import org.jewzaam.cruiseweather.data.local.entity.PortType
+import timber.log.Timber
 import java.time.Instant
 import java.time.LocalDate
+import java.time.format.DateTimeParseException
 
 class Converters {
     @TypeConverter
-    fun fromLocalDate(value: String?): LocalDate? = value?.let { LocalDate.parse(it) }
+    fun fromLocalDate(value: String?): LocalDate? = value?.let {
+        try {
+            LocalDate.parse(it)
+        } catch (e: DateTimeParseException) {
+            Timber.e(e, "Corrupt LocalDate in database: %s", it)
+            null
+        }
+    }
 
     @TypeConverter
     fun toLocalDate(date: LocalDate?): String? = date?.toString()
@@ -20,7 +29,14 @@ class Converters {
     fun toInstant(instant: Instant?): Long? = instant?.toEpochMilli()
 
     @TypeConverter
-    fun fromPortType(value: String?): PortType? = value?.let { PortType.valueOf(it) }
+    fun fromPortType(value: String?): PortType? = value?.let {
+        try {
+            PortType.valueOf(it)
+        } catch (e: IllegalArgumentException) {
+            Timber.e(e, "Corrupt PortType in database: %s", it)
+            null
+        }
+    }
 
     @TypeConverter
     fun toPortType(type: PortType?): String? = type?.name

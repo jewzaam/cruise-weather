@@ -1,7 +1,7 @@
 # Convenience wrapper around Gradle targets.
 # Gradle is authoritative; this Makefile just saves typing.
 
-.PHONY: build test lint check clean itest setup-check
+.PHONY: build test lint check clean itest setup-check itest setup-check
 
 build:
 	./gradlew build

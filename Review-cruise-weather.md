@@ -2,147 +2,187 @@
 
 ## TL;DR
 
-The Phase 1 implementation follows clean architecture patterns with proper layer separation, Hilt DI, Room persistence, and Ktor networking. The codebase is well-organized with consistent naming and good Kotlin idioms. However, there are several issues that need attention before Phase 2: (1) non-transactional weather data replacement creates a data loss window on crash, (2) adding ports before saving a cruise creates orphaned database records, (3) multiple ViewModel operations lack error handling leaving the UI stuck in loading states, (4) date entry is non-functional (read-only fields with no picker), and (5) the `make` targets are broken on Windows due to shell compatibility. Test quality is solid where tests exist, but significant gaps remain — no ViewModel tests, no `GeocodingRepository` tests, and the test plan claims UI test coverage that doesn't exist.
+Solid Phase 1 Android app with clean architecture, consistent naming, and good Kotlin idioms. The codebase follows MVVM/Repository with Hilt DI, Room persistence, and Ktor networking. However, there are race conditions in `CruiseDetailViewModel` and `CruiseEditViewModel` that can cause stale data or wrong-port edits, port sync operations outside transactions risk data corruption on crash, and domain models directly reference Room entities (breaking clean architecture). Tests are well-structured where they exist, but `CruiseListViewModel` is untested, Turbine is declared but unused, and `relaxed = true` on mocks weakens test sensitivity. Build targets (`make lint`, `make test`) fail on this Windows environment.
 
 ## Build & Check Results
 
 | Target | Status | Notes |
 |--------|--------|-------|
 | format | N/A | No target defined |
-| lint | :x: | `make` uses `cmd.exe` for recipes; `./gradlew` (bash script) cannot execute. Root cause: Windows-native GNU Make dispatches to `cmd.exe` instead of a POSIX shell. |
-| typecheck | N/A | No target defined |
-| test | :x: | Same shell incompatibility as `lint` |
-| coverage | N/A | No target defined |
+| lint | :x: | `./gradlew` shell script not executable on Windows/MINGW — `'.' is not recognized` |
+| test | :x: | Same root cause |
 | check | :x: | Meta-target (`lint` + `test`), same root cause |
+| coverage | N/A | No target defined |
 
-**Root cause:** The installed `make` binary (ezwinports GNU Make 4.4.1) is a Windows-native build that dispatches recipes to `cmd.exe`. The Makefile recipes use `./gradlew` which is a bash script. Fix options: (1) add `SHELL := bash` to the Makefile, (2) use `gradlew.bat` with platform detection, or (3) install MSYS2/Git Bash `make`.
+**Root cause:** The Makefile invokes `./gradlew` (Unix shell script), which cannot execute in this Windows/MINGW environment. Fix: add `SHELL := bash` to the Makefile, use platform detection, or ensure the environment runs Make through a POSIX shell.
 
 ## Findings
 
 ### :red_circle: Critical
 
-1. **WeatherRepository.kt:116-121 — Non-atomic delete-then-insert creates data loss window.** `deleteWeatherYearsForPort` and `deleteSummaryForPort` are called followed by inserts, but these operations are NOT wrapped in `db.withTransaction`. If the app crashes between delete and insert, all weather data for that port is lost with no recovery. Fix: wrap in `db.withTransaction {}`.
+1. **CruiseDetailViewModel.kt:76-99 — Race condition: cancelling `collectJob` during weather fetch breaks database observation.**
+   `fetchWeather()` cancels `collectJob` (line 79) to "prevent it from overwriting fresh data," then restarts observation via `loadCruise()` after the fetch completes (line 98). While `collectJob` is cancelled (the entire duration of the weather fetch), any database changes from other sources are silently dropped. If the ViewModel is cleared between cancel and restart, the new `loadCruise()` creates an orphaned coroutine.
+   **Fix:** Do not cancel `collectJob`. Use a separate `MutableStateFlow` for weather state, or `combine()` to merge the cruise data Flow with a weather-refresh trigger.
 
-2. **CruiseEditScreen.kt:254-268 — Adding ports before saving cruise creates orphaned records.** `uiState.cruiseId` is `0L` until the cruise is first saved. `addPortOfCall` inserts a `PortOfCall` with `cruiseId = 0`, which has no matching cruise row. These records are orphaned and violate the foreign key relationship. Fix: disable "Add Port of Call" until the cruise is saved, or queue ports locally.
+2. **CruiseEditViewModel.kt:316-317 — Flawed identity comparison for unsaved ports in `updatePortOfCall`.**
+   `it.id == port.id && it.date == port.date || it === port` — due to `&&` binding tighter than `||`, this evaluates as `(id match AND date match) OR identity match`. For unsaved ports (all have id=0), two ports on the same date would both match. The `===` fallback breaks with `.copy()`. Same problem in `deletePortOfCall` (line 322-324).
+   **Fix:** Assign temporary client-side IDs (e.g., negative longs) to unsaved ports, or use list indices.
 
-3. **WeatherCard.kt:71-73 — Integer division truncates rain percentage.** `summary.rainyYearCount * 100 / summary.totalYearCount` uses integer division, while `PortWithWeather.rainProbabilityPct` and `CompareCruisesUseCase` use floating-point division. This produces inconsistent rain percentages between the detail and comparison screens. Fix: use consistent floating-point calculation everywhere.
-
-4. **DatabaseModule.kt:29 — Destructive migration enabled unconditionally.** `fallbackToDestructiveMigration(dropAllTables = true)` has no build-type guard. If this ships to users, any schema version bump silently deletes all their data. Fix: guard with `if (BuildConfig.DEBUG)` or implement proper migrations before release.
+3. **CruiseEditViewModel.kt:242-254 — Port sync not wrapped in a transaction.**
+   `saveCruise()` calls `cruiseRepository.saveCruise()` (transactional) but then performs port deletions, inserts, and updates in a loop outside any transaction. A crash mid-loop leaves the database in an inconsistent state.
+   **Fix:** Move port sync into `CruiseRepository.saveCruise()` inside the existing `db.withTransaction` block.
 
 ### :yellow_circle: Important
 
-5. **CruiseEditViewModel.kt:187-200 — saveCruise has no error handling.** No try/catch around the database operation. If it throws, `isLoading` remains `true` forever, leaving the UI stuck. Same issue exists in `addPortOfCall` (line 252) and `updatePortOfCall` (line 258).
+4. **CruiseDetailViewModel.kt:44 — `hasAutoFetched` not scoped to a cruise.**
+   Simple boolean flag. If user views cruise A (auto-fetch fires, flag = true), then navigates to cruise B, auto-fetch is skipped because the flag is already true.
+   **Fix:** Track per cruise ID, or reset in `loadCruise()`.
 
-6. **CruiseDetailViewModel.kt:40-49 — Race condition between Flow collection and weather fetch.** `loadCruise` collects a reactive Flow but `buildPortWeatherMap` does one-shot queries. After `fetchWeather()` writes to `_uiState`, the Flow's `collect` callback can overwrite freshly fetched data with stale data. Fix: make weather data reactive or cancel the collect job during fetch.
+5. **CruiseEditViewModel.kt:147,167 — Redundant geocode coroutines.**
+   `onDeparturePortNameChange` debounces (800ms) then calls `geocodeDeparture()`, which launches a *new* coroutine. The debounce cancels the delay but not the inner geocode coroutine. Two rapid type-pause-type cycles produce two concurrent geocode requests; stale results can overwrite newer ones.
+   **Fix:** Cancel previous geocode coroutine in `geocodeDeparture()`, or run geocode directly in the debounce coroutine.
 
-7. **CruiseEditScreen.kt:106-123 — Date fields are non-functional.** Sail date and return date are `readOnly = true` with `onValueChange = {}`. No date picker exists. Users cannot change dates from the defaults (today / today+7). `onSailDateChange`/`onReturnDateChange` ViewModel methods are never called (dead code).
+6. **Converters.kt:11 — No error handling on `LocalDate.parse` in Room converter.**
+   `DateTimeParseException` on corrupt DB data crashes the entire query.
+   **Fix:** Wrap in try-catch returning null.
 
-8. **GeocodingConfirmation.kt:78 — Hardcoded "N" and "E" coordinate labels.** Southern latitudes show as `-33.8600° N` and western longitudes as `-151.2100° E`. Fix: use `abs()` with conditional N/S and E/W.
+7. **WeatherRepository.kt:82-115 — Sequential API calls without parallelism.**
+   5 years x N ports fetched serially. A 7-port cruise = 35 sequential HTTP calls, each with a 30s timeout.
+   **Fix:** Use `async`/`awaitAll` to fetch years in parallel.
 
-9. **Theme.kt:59 — Unsafe cast of Context to Activity.** `(view.context as Activity)` will crash with `ClassCastException` if the context is wrapped (e.g., `ContextThemeWrapper`, Compose previews). Fix: use `view.context.findActivity()` or a safe cast.
+8. **Domain models depend on data-layer entities.**
+   `CruiseWithPorts.kt:5-6`, `PortWithWeather.kt:4-6`, `CruiseComparison.kt:4` import Room entities. `WeatherFetchResult` (data layer) is consumed by domain use cases. UI screens also import entities directly.
+   **Why it matters:** Room schema changes propagate through all layers. Violates the project's own `standards/project-structure.md`.
+   **Fix:** Pragmatic trade-off for Phase 1, but create domain data classes before Phase 2.
 
-10. **Domain models import data-layer entities directly.** `CruiseWithPorts.kt:5-6`, `PortWithWeather.kt:4-6`, `CruiseComparison.kt:4` all reference `data.local.entity.*`. Per `standards/project-structure.md:39`, domain should be pure Kotlin with no project dependencies. Room entity changes propagate into the domain layer.
+9. **Rain probability duplicated in 4 locations with formula variations.**
+   `CompareCruisesUseCase.kt:32` (proportion), `CompareCruisesUseCase.kt:50` (percentage), `PortWithWeather.kt:16` (percentage), `WeatherCard.kt:94-95` (percentage). Each has its own zero-check.
+   **Fix:** Extract `PortWeatherSummary.rainProbabilityPct()` extension and use everywhere.
 
-11. **Repositories are concrete classes, not interfaces.** All three repositories are `@Singleton` concrete classes injected directly, preventing test double substitution via Hilt and violating dependency inversion.
+10. **CruiseEditViewModel.kt:63-116, 147-191 — Departure/return geocoding logic nearly identical.**
+    ~80 lines duplicated, differing only in which state fields are read/written. Largest DRY violation in the codebase.
+    **Fix:** Extract parameterized helper function.
 
-12. **ComparisonViewModel.kt:66-84 — No debounce on comparison refresh.** Rapid toggling launches concurrent coroutines that all write to `_comparisons`, with no cancellation of previous jobs. Stale results can overwrite newer ones.
+11. **No test for `CruiseListViewModel`.**
+    Contains `showCompareButton` derivation and `deleteCruise` method. Neither tested. Not listed in TEST_PLAN.md.
+    **Fix:** Add `CruiseListViewModelTest`, update TEST_PLAN.md.
 
-13. **TEST_PLAN.md claims UI tests exist, but none do.** The test plan documents UI tests for cruise list, create cruise, weather cards, and comparison flows, but zero UI test files exist under `src/androidTest/`. This gives false confidence in coverage.
+12. **`relaxed = true` on mocks weakens test sensitivity.**
+    `FetchWeatherForCruiseUseCaseTest.kt:22` and `CruiseDetailViewModelTest.kt:39-40` use relaxed mocks. Unstubbed methods return defaults silently instead of failing, masking implementation changes.
+    **Fix:** Remove `relaxed = true`, stub explicitly per test.
 
-14. **No ViewModel tests exist.** `CruiseEditViewModel` has non-trivial validation logic, port construction, and geocoding state management. `CruiseDetailViewModel` has fetch orchestration with message formatting. These are testable and untested.
+13. **Inconsistent fixture usage across test files.**
+    `WeatherRepositoryTest` and `CruiseRepositoryTest` construct objects inline instead of using `TestFixtures.kt` factories. `CompareCruisesUseCaseTest` duplicates a `buildSummary` helper.
+    **Fix:** Use shared fixture functions consistently.
 
-15. **GeocodingRepository has zero test coverage.** It contains mapping logic (`GeocodingResult` → `GeocodingCandidate`), nullable field handling for `displayName`, and `results == null` handling — none of which is tested.
+14. **Turbine declared as test dependency but never used.**
+    All Flow assertions use `.first()`, which only validates initial emission. Multi-emission ViewModel state transitions (loading -> loaded -> fetching) are not verifiable.
+    **Fix:** Use Turbine's `test {}` for Flow-based ViewModel tests.
 
-16. **WeatherRepository partial paths untested.** `PartialSuccess` return path, `response.error == true` path, and `daily == null` path have no test coverage.
+15. **`forceRefresh = true` path untested.**
+    `FetchWeatherForCruiseUseCase` accepts `forceRefresh` but no test verifies it bypasses the `isFetchNeeded` check.
 
-17. **Makefile:4 — `.PHONY` omits `itest`.** The `itest` target is defined but not declared phony. If a file named `itest` were created, the target would be skipped.
+16. **Makefile:4 — `.PHONY` missing `itest` and `setup-check`.**
+    **Fix:** Add to `.PHONY` declaration.
 
-18. **WeatherFetchResult defined in data layer, used in domain.** `WeatherFetchResult` is in `data.repository` but imported by `domain.usecase.FetchWeatherForCruiseUseCase`, creating a domain→data dependency.
+17. **NetworkModule.kt:32-44 — HttpClient never closed.**
+    Singleton Ktor `HttpClient` leaks connection pools and threads. Mitigated by Android's process lifecycle but worth noting.
+
+18. **DatabaseModule.kt:31-33 — `fallbackToDestructiveMigration` only guarded by DEBUG.**
+    No mechanism to enforce migration creation before release. A schema version bump without migration silently deletes all user data.
+    **Fix:** Add a test validating migrations exist for versions > 1.
 
 ### :green_circle: Suggestions
 
-19. **WeatherRepository.kt:80-109 — Sequential API calls could be parallelized.** Five years × N ports are fetched serially. A 7-port cruise makes 35 sequential HTTP calls. Use `async`/`awaitAll` with a concurrency limiter.
+19. **OpenMeteoApi.kt:14-15 — API base URLs hardcoded.** Not configurable for testing. Inject via Hilt for mock server support.
 
-20. **CruiseRepository.kt:29-38 — Unnecessary Flow overhead.** `flatMapLatest { ports -> flowOf(...) }` is equivalent to `.map { ... }`. The inner `flatMapLatest` + `flowOf` creates unnecessary Flow machinery.
+20. **NavGraph.kt:51 — `getLong` returns 0L on null, not null.** The `?: return@composable` guard never triggers. Use `containsKey` check or `getString`/`toLongOrNull`.
 
-21. **CruiseEditViewModel.kt:72-97, 122-162 — Significant code duplication.** Departure/return port-to-candidate mapping (lines 72-97) and `geocodeDeparture`/`geocodeReturn` (lines 122-162) are nearly identical. Extract shared functions.
+21. **`PortFetchResult` co-located with `FetchWeatherForCruiseUseCase.kt`.** Should be its own file per Kotlin convention.
 
-22. **CruiseListScreen.kt:42, CruiseDetailScreen.kt:39 — Duplicated `DATE_FORMAT`.** Same `DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)` defined in two files.
+22. **`DATE_FORMAT` duplicated in 3 UI files.** `CruiseListScreen.kt:42`, `CruiseDetailScreen.kt:48`, `ComparisonScreen.kt:41`. Consolidate to shared location.
 
-23. **ComparisonScreen.kt:129 — Inconsistent date formatting.** Uses raw `toString()` (ISO format) while other screens use `DateTimeFormatter`.
+23. **`GeocodePortUseCase` is a pure pass-through.** Delegates entirely to `geocodingRepository.geocode()` with zero additional logic. Adds indirection without value.
 
-24. **GeocodingConfirmation.kt:57,66 — Fully qualified class names inline.** `Row` and `Alignment` used as FQN instead of imports.
+24. **WeatherRepository.kt:144 — Catches `Exception` instead of `DateTimeException`.** Overly broad catch could mask bugs.
 
-25. **Theme.kt:60 — Deprecated `window.statusBarColor`.** Deprecated in API 35+, app targets 36. `enableEdgeToEdge()` already handles this.
+25. **WeatherCard.kt:35 — Dead `isSeaDay` parameter.** Never passed as `true` by any caller.
 
-26. **libs.versions.toml:53 — `hilt-navigation-compose` has hardcoded version** instead of a version catalog reference.
+26. **WeatherRepository.kt:7 — Unused import `kotlinx.coroutines.flow.first`.**
 
-27. **CompareCruisesUseCase.kt:31 — Non-null assertion on filtered nullable.** `pww.summary!!` is safe due to prior filter but bypasses compiler null safety. Use `let` or `mapNotNull`.
+27. **gradle/libs.versions.toml:53 — `hilt-navigation-compose` has hardcoded version** instead of version catalog reference.
 
-28. **CruiseListViewModel.kt:39-42 — Delete has no undo capability.** Fire-and-forget with no undo snackbar.
+28. **GETTING_STARTED.md:97-109 — References `./gradlew` instead of `make` targets.** Contradicts project convention.
 
-29. **FetchWeatherForCruiseUseCase.kt:11-14 — `PortFetchResult` defined in same file as use case.** Violates the one-class-per-file standard.
+29. **DTO field names embed unit assumptions** (e.g., `tempMaxF`). If API unit parameter changes, names become misleading.
 
-30. **CruiseDetailViewModel.kt:37 — Inconsistent naming.** Uses `detailState` instead of `uiState` used by all other ViewModels.
+30. **ComparisonViewModel uses `combine` pattern while other ViewModels use single `MutableStateFlow`.** Inconsistent state management approach.
+
+31. **No retry logic for transient network failures.** Add Ktor `HttpRequestRetry` plugin.
+
+32. **Makefile `setup-check` repeats SDK dir extraction 4 times.** Extract to shared variable or function.
 
 ### :white_check_mark: Strengths
 
-- **Clean architecture alignment.** File structure matches PLAN.md exactly. Every planned file exists in the correct package under `data/`, `domain/`, `ui/`, and `di/`.
-- **Unified PortOfCall model with PortType.** Good design decision that correctly unifies weather storage for departure, port-of-call, and return port types using a single entity.
-- **Proper CancellationException handling.** `WeatherRepository.kt:105-106` correctly re-throws `CancellationException` to maintain structured concurrency.
-- **Transaction-wrapped cruise save.** `CruiseRepository.saveCruise` correctly uses `db.withTransaction` for atomic multi-step operations.
-- **Consistent Generated By headers.** Every source file has the `// Generated By: Claude Code (claude-sonnet-4-6)` header per project standards.
-- **Proper Flow sharing in ViewModels.** `SharingStarted.WhileSubscribed(5_000)` is the correct pattern, avoiding unnecessary database queries while giving grace period for config changes.
-- **Defensive JSON parsing.** `NetworkModule.kt` uses `ignoreUnknownKeys` and `coerceInputValues` for graceful API response evolution.
-- **No embedded API keys.** Open-Meteo's free API requires no authentication, eliminating credential management concerns.
-- **Entity relationships with proper indexing.** All foreign keys have `CASCADE` delete and indexed columns.
-- **Version catalog well-organized.** All dependencies properly declared through `libs.versions.toml` with pinned versions.
-- **Existing tests are well-structured.** Good assertion quality using Google Truth, proper test isolation with in-memory Room databases, and correct `mockkStatic` cleanup.
-- **Boundary condition testing.** `WeatherRepositoryTest` has specific tests for the `> 1.0mm` rain threshold, verifying exact boundary behavior.
+- **Clean three-layer architecture.** Dependencies flow inward correctly: UI -> domain -> data. No backward references.
+- **Proper `CancellationException` re-throw** in `WeatherRepository.kt:110-111`. Maintains structured concurrency — a common mistake this codebase gets right.
+- **Transactional cruise save.** `CruiseRepository.saveCruise` correctly uses `db.withTransaction` for atomic multi-step operations.
+- **`WhileSubscribed(5_000)` sharing strategy.** Correct pattern in `CruiseListViewModel`, avoids unnecessary DB queries while handling config changes.
+- **Entity design is solid.** Foreign keys with CASCADE deletes, proper indices, documented denormalized fields.
+- **Defensive JSON parsing.** `NetworkModule.kt` uses `ignoreUnknownKeys` and `coerceInputValues`.
+- **Well-designed `WeatherFetchResult` sealed class.** Clean handling of Success/PartialSuccess/Failure/NoCoordinates.
+- **Consistent naming conventions.** `*Screen`, `*ViewModel`, `*Repository`, `*UseCase`, `*Dao` throughout. `Generated By` headers on every file.
+- **Well-organized version catalog.** All dependencies through `libs.versions.toml` with pinned versions, no known vulnerable versions.
+- **Good test fixture design.** `TestFixtures.kt` with factory functions and named parameters — textbook approach.
+- **Correct coroutine test patterns.** `StandardTestDispatcher`, `Dispatchers.setMain`/`resetMain`, `advanceUntilIdle()` used properly throughout.
+- **Strong edge case coverage in `WeatherRepositoryTest`.** Leap year handling, exact boundary for `precipMm == 1.0`, empty daily data, partial failure, API errors.
+- **Proper Room DAO testing.** In-memory databases, FK setup, `database.close()` cleanup. Real SQL behavior validated.
+- **Debounced geocoding.** `CruiseEditViewModel` correctly implements 800ms debounce with job cancellation.
+- **No embedded API keys.** Open-Meteo's free API requires no authentication.
 
 ## Detailed Analysis
 
 ### Architecture & Design
 
-The project follows MVVM with Repository pattern. Layer separation is structural (packages) but not enforced by abstraction — domain models directly reference Room entities, and repositories are concrete classes rather than interfaces. The single-module structure is appropriate for this project's scope. Data flows through Room Flows → ViewModels → Compose via `collectAsStateWithLifecycle`, following recommended Android architecture patterns.
+The project follows MVVM with Repository pattern, with structural layer separation via packages. Data flows through Room Flows -> Repositories -> ViewModels -> Compose via `collectAsStateWithLifecycle`. DI is correctly scoped: database and HttpClient are `@Singleton`, DAOs are unscoped.
 
-The most significant structural issue is the domain-layer dependency on Room entities. `CruiseWithPorts`, `PortWithWeather`, and `CruiseComparison` all import from `data.local.entity.*`, contradicting the project's own `standards/project-structure.md` rule that domain should depend on nothing in the project. This is a pragmatic trade-off for a small project but will become painful if entity-to-domain mapping diverges.
+The primary architectural shortcut is domain models directly referencing Room entities. This is pragmatic for Phase 1 but will become painful when entity-to-domain mapping diverges. `WeatherFetchResult` lives in the data layer but is consumed by domain use cases, inverting the intended dependency direction. `GeocodePortUseCase` is a pure pass-through that adds indirection without business logic.
 
-Sequential API calls for weather data (5 years × N ports) will cause poor UX as the app grows. The `WeatherFetchResult` sealed class with Success/PartialSuccess/Failure/NoCoordinates is well-designed for handling partial data scenarios.
+The `CruiseDetailViewModel` has the most complex data flow and the most issues: the cancel-collect-restart pattern for weather fetching is fragile, and `hasAutoFetched` is not cruise-scoped.
 
 ### Implementation Quality
 
-The codebase uses good Kotlin idioms overall. The most critical implementation issues are the non-transactional weather data replacement (crash between delete and insert loses data), orphaned port records when adding ports before saving a cruise, and missing error handling in several ViewModel `launch` blocks that can leave the UI permanently in a loading state.
+Strong Kotlin idioms overall. The most impactful issues are the race conditions in `CruiseDetailViewModel` (stale data overwriting fresh weather) and `CruiseEditViewModel` (unsaved port identity, redundant geocode coroutines). The port sync being outside a transaction is a data integrity risk.
 
-The coordinate display bug (hardcoded N/E labels) will affect roughly half of all cruise ports. The integer-division rain percentage creates inconsistency between screens. The `CruiseDetailViewModel` Flow collection race condition can cause freshly fetched weather data to be overwritten by stale data.
-
-On the positive side: proper `CancellationException` handling, correct `Result<T>` usage for geocoding, defensive JSON parsing, and well-designed sealed class hierarchies for fetch results.
+Positive: proper `CancellationException` handling, `Result<T>` usage for geocoding, defensive JSON parsing, sealed class hierarchies for fetch results, and the debounced geocoding implementation.
 
 ### Test Quality & Coverage
 
-Existing tests are well-structured with proper isolation (in-memory Room databases, MockK with cleanup), meaningful assertions (Google Truth), and good scenario coverage for the classes they test. Boundary testing for the rain threshold is particularly well-done.
+Existing tests are well-structured with proper isolation, meaningful assertions via Google Truth, and correct coroutine test patterns. `WeatherRepositoryTest` is the standout with excellent boundary and edge case coverage.
 
-Key gaps: no ViewModel tests despite non-trivial logic in `CruiseEditViewModel` and `CruiseDetailViewModel`, no `GeocodingRepository` tests, untested `WeatherRepository` paths (PartialSuccess, error responses, null daily data), no `CompareCruisesUseCase` multi-cruise test, and missing DAO operation tests (deleteSummaryForPort, update). The test plan claims UI test coverage that doesn't exist. The 80% coverage target for `data/repository/` and `domain/` layers is likely not met.
+Key gaps: `CruiseListViewModel` untested (and missing from test plan), Turbine declared but unused (Flow behavior only tested via `.first()`), `forceRefresh = true` untested, relaxed mocks reducing test sensitivity, and inconsistent fixture usage across test files.
 
 ### Maintainability & Standards
 
-Naming conventions are consistent and follow documented standards (`*Screen`, `*ViewModel`, `*Repository`, `*UseCase`, `*Dao`). Every file has the required `Generated By` header. The version catalog is well-organized.
+Naming is consistent and follows documented standards. Build configuration is clean with a well-organized version catalog. Functions are short and focused (longest ~35 lines).
 
-The main DRY violations are: rain probability calculation in three places with inconsistent implementations, duplicated geocoding logic in `CruiseEditViewModel`, and duplicated date formatting across screens. The `CruiseRepository` uses unnecessary `flatMapLatest` + `flowOf` where a simple `map` would suffice. A few files use fully qualified class names inline instead of imports.
+Main DRY violations: rain probability in 4 places with formula variations, departure/return geocoding duplicated (~80 lines), date formatter in 3 files. One unused import, one hardcoded version in the catalog.
 
 ## Recommendations
 
 Prioritized by impact:
 
-1. **Wrap weather data replacement in a transaction** — prevents data loss on crash (Critical #1)
-2. **Fix orphaned port records** — prevent adding ports before cruise is saved, or batch them in the save transaction (Critical #2)
-3. **Add error handling to ViewModel operations** — try/catch around DB operations, reset `isLoading`, surface errors to UI (Important #5)
-4. **Fix the Makefile for Windows** — add `SHELL := bash` or platform detection so the CI/local build targets work (Build)
-5. **Implement date picker UI** — dates are currently non-functional (Important #7)
-6. **Fix coordinate display** — use abs() with conditional N/S E/W (Important #8)
-7. **Unify rain probability calculation** — extract shared function, fix integer division (Critical #3)
-8. **Guard destructive migration with DEBUG check** — prevent user data loss on schema changes (Critical #4)
-9. **Add ViewModel and GeocodingRepository tests** — biggest coverage gaps (Important #14, #15)
-10. **Update TEST_PLAN.md** — remove claims of UI test coverage that doesn't exist (Important #13)
-11. **Fix CruiseDetailViewModel race condition** — make weather data reactive or cancel collect during fetch (Important #6)
-12. **Extract repository interfaces** — enables proper test double injection via Hilt (Important #11)
+1. **Fix `CruiseDetailViewModel` race condition** — cancel-collect-restart pattern causes stale data; use separate state flows or `combine()` (Critical #1)
+2. **Fix unsaved port identity** — assign temporary IDs to prevent wrong-port edits/deletes (Critical #2)
+3. **Wrap port sync in a transaction** — move into `CruiseRepository.saveCruise()` to prevent crash-induced corruption (Critical #3)
+4. **Fix `hasAutoFetched` scoping** — track per cruise ID so all cruises get auto-fetched (Important #4)
+5. **Fix redundant geocode launches** — cancel previous coroutine to prevent stale results (Important #5)
+6. **Add error handling to `LocalDate.parse` converter** — prevent crash on corrupt data (Important #6)
+7. **Parallelize weather API calls** — `async`/`awaitAll` for year fetching (Important #7)
+8. **Unify rain probability calculation** — extract shared function (Important #9)
+9. **Extract departure/return geocoding helper** — eliminate 80-line duplication (Important #10)
+10. **Add `CruiseListViewModel` tests** — untested ViewModel with logic (Important #11)
+11. **Remove `relaxed = true` from mocks** — strengthen test sensitivity (Important #12)
+12. **Use Turbine for Flow testing** — validate multi-emission state transitions (Important #14)
+13. **Fix Makefile for Windows** — add `SHELL := bash` or platform detection (Build)
+14. **Create domain model classes** before Phase 2 — decouple from Room entities (Important #8)

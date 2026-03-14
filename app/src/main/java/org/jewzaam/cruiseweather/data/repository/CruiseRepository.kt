@@ -39,18 +39,22 @@ class CruiseRepository @Inject constructor(
         }
 
     /**
-     * Saves a cruise and its departure/return ports.
-     * For new cruises: inserts cruise then inserts departure/return ports.
-     * For existing cruises: updates cruise, replaces departure/return ports.
-     * Ports of call are managed separately via [addPortOfCall]/[updatePortOfCall]/[deletePortOfCall].
+     * Saves a cruise, its departure/return ports, and syncs ports of call — all
+     * within a single transaction.
      *
+     * @param cruise the cruise entity to insert or update
+     * @param departurePorts departure and return port entities (replaced each save)
+     * @param portsOfCall staged ports of call (new ports have id=0)
+     * @param deletedPortIds IDs of ports removed by the user since last load
      * @return the cruise ID (new or existing)
      */
     suspend fun saveCruise(
         cruise: Cruise,
         departurePorts: List<PortOfCall>,
+        portsOfCall: List<PortOfCall> = emptyList(),
+        deletedPortIds: Set<Long> = emptySet(),
     ): Long = db.withTransaction {
-        if (cruise.id == 0L) {
+        val savedId = if (cruise.id == 0L) {
             val id = cruiseDao.insert(cruise)
             Timber.i("Inserted cruise: id=%d name=%s", id, cruise.name)
             val portsWithId = departurePorts.map { it.copy(cruiseId = id, id = 0) }
@@ -64,6 +68,18 @@ class CruiseRepository @Inject constructor(
             portOfCallDao.insertAll(portsWithId)
             cruise.id
         }
+        // Sync ports of call inside the same transaction
+        for (id in deletedPortIds) {
+            portOfCallDao.deleteById(id)
+        }
+        for (port in portsOfCall) {
+            if (port.id == 0L) {
+                portOfCallDao.insert(port.copy(cruiseId = savedId, id = 0))
+            } else {
+                portOfCallDao.update(port)
+            }
+        }
+        savedId
     }
 
     suspend fun deleteCruise(cruise: Cruise) {

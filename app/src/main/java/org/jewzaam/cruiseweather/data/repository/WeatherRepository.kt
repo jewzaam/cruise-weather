@@ -4,7 +4,6 @@ package org.jewzaam.cruiseweather.data.repository
 import androidx.room.withTransaction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import org.jewzaam.cruiseweather.data.local.AppDatabase
 import org.jewzaam.cruiseweather.data.local.PortOfCallDao
 import org.jewzaam.cruiseweather.data.local.WeatherDao
@@ -16,6 +15,7 @@ import org.jewzaam.cruiseweather.data.remote.dto.DailyWeatherData
 import org.jewzaam.cruiseweather.domain.model.PortWithWeather
 import timber.log.Timber
 import java.time.Instant
+import java.time.DateTimeException
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
@@ -141,7 +141,7 @@ class WeatherRepository @Inject constructor(
     private fun buildDateForYear(targetDate: LocalDate, year: Int): LocalDate? =
         try {
             targetDate.withYear(year)
-        } catch (_: Exception) {
+        } catch (_: DateTimeException) {
             // Feb 29 in non-leap years
             null
         }

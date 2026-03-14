@@ -40,8 +40,7 @@ class CruiseDetailViewModel @Inject constructor(
     val uiState: StateFlow<CruiseDetailUiState> = _uiState
 
     private var collectJob: Job? = null
-
-    private var hasAutoFetched = false
+    private var hasAutoFetchedForCruiseId: Long? = null
 
     fun loadCruise(cruiseId: Long) {
         collectJob?.cancel()
@@ -51,8 +50,8 @@ class CruiseDetailViewModel @Inject constructor(
                 val portWeather = buildPortWeatherMap(cruiseWithPorts)
                 _uiState.update { it.copy(cruiseWithPorts = cruiseWithPorts, portWeather = portWeather) }
                 // Auto-fetch weather on first load if any port needs data
-                if (!hasAutoFetched) {
-                    hasAutoFetched = true
+                if (hasAutoFetchedForCruiseId != cruiseId) {
+                    hasAutoFetchedForCruiseId = cruiseId
                     val needsFetch = cruiseWithPorts.ports.any { port ->
                         port.latitude != null && weatherRepository.isFetchNeeded(port.id)
                     }
@@ -75,8 +74,6 @@ class CruiseDetailViewModel @Inject constructor(
 
     fun fetchWeather(forceRefresh: Boolean = false) {
         val cruiseWithPorts = _uiState.value.cruiseWithPorts ?: return
-        // Cancel the collect job to prevent it from overwriting fresh data
-        collectJob?.cancel()
         viewModelScope.launch {
             _uiState.update { it.copy(isFetchingWeather = true, fetchMessage = null, error = null) }
             val results = fetchWeatherUseCase(
@@ -94,8 +91,6 @@ class CruiseDetailViewModel @Inject constructor(
             // Refresh port weather map after fetch
             val updated = buildPortWeatherMap(cruiseWithPorts)
             _uiState.update { it.copy(isFetchingWeather = false, fetchMessage = message, portWeather = updated) }
-            // Restart the collect job so future changes are still observed
-            loadCruise(cruiseWithPorts.cruise.id)
         }
     }
 

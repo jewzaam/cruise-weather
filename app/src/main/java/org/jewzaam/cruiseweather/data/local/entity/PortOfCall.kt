@@ -6,6 +6,7 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import java.time.LocalDate
+import java.util.UUID
 
 @Entity(
     tableName = "ports_of_call",
@@ -21,6 +22,8 @@ import java.time.LocalDate
 )
 data class PortOfCall(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** Stable client-side identity — unique even before persistence. */
+    val localId: String = UUID.randomUUID().toString(),
     val cruiseId: Long,
     val portName: String,
     val date: LocalDate,

@@ -11,8 +11,5 @@ data class PortWithWeather(
     val years: List<PortWeatherYear>,
 ) {
     val hasWeather: Boolean get() = summary != null
-    val rainProbabilityPct: Double?
-        get() = summary?.let { s ->
-            if (s.totalYearCount > 0) s.rainyYearCount.toDouble() / s.totalYearCount * 100.0 else null
-        }
+    val rainProbabilityPct: Double? get() = summary?.rainProbabilityPct
 }

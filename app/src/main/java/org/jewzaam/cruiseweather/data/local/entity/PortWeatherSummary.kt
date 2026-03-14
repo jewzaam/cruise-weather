@@ -40,4 +40,8 @@ data class PortWeatherSummary(
     val avgUvIndexMax: Double,
     val avgSunshineMins: Double,    // converted from seconds
     val fetchedAt: Instant = Instant.now(),
-)
+) {
+    /** Rain probability as a percentage (0–100), or null if no year data. */
+    val rainProbabilityPct: Double?
+        get() = if (totalYearCount > 0) rainyYearCount.toDouble() / totalYearCount * 100.0 else null
+}
