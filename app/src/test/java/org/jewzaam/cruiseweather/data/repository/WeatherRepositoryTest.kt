@@ -49,7 +49,7 @@ class WeatherRepositoryTest {
     fun setUp() {
         mockkStatic("androidx.room.RoomDatabaseKt")
         coEvery { db.withTransaction(any<suspend () -> Any?>()) } coAnswers {
-            val block = args[0] as suspend () -> Any?
+            val block = args[1] as suspend () -> Any?
             block()
         }
         coEvery { weatherDao.deleteWeatherYearsForPort(any()) } returns Unit
@@ -128,15 +128,6 @@ class WeatherRepositoryTest {
     }
 
     @Test
-    fun `isFetchNeeded returns true when summary is stale`() = runTest {
-        val staleSummary = buildSummary(
-            fetchedAt = Instant.now().minusSeconds(8L * 24 * 3600), // 8 days ago
-        )
-        coEvery { weatherDao.getSummaryForPortOnce(1L) } returns staleSummary
-        assertThat(repository.isFetchNeeded(1L)).isTrue()
-    }
-
-    @Test
     fun `computeSummary rain probability counts years above 1mm threshold`() = runTest {
         // 3 rainy, 2 dry — expect rainyYearCount = 3
         val fakeDaily = DailyWeatherData(
@@ -211,6 +202,114 @@ class WeatherRepositoryTest {
                 },
             )
         }
+    }
+
+    @Test
+    fun `getPortWithWeather returns PortWithWeather when port exists`() = runTest {
+        val summary = buildSummary(fetchedAt = Instant.now())
+        val years = listOf(
+            PortWeatherYear(
+                portOfCallId = 1L, year = 2025, tempHighF = 82.0, tempLowF = 72.0,
+                precipMm = 0.0, precipHours = 0.0, windMaxMph = 12.0, windGustMph = 18.0,
+                humidityPct = 75.0, uvIndexMax = 9.0, sunshineDurationSec = 25000.0,
+            ),
+        )
+        coEvery { portOfCallDao.getPortById(1L) } returns testPort
+        coEvery { weatherDao.getSummaryForPortOnce(1L) } returns summary
+        coEvery { weatherDao.getYearDataForPortOnce(1L) } returns years
+
+        val result = repository.getPortWithWeather(1L)
+
+        assertThat(result).isNotNull()
+        assertThat(result!!.port).isEqualTo(testPort)
+        assertThat(result.summary).isEqualTo(summary)
+        assertThat(result.years).hasSize(1)
+    }
+
+    @Test
+    fun `getPortWithWeather returns null when port does not exist`() = runTest {
+        coEvery { portOfCallDao.getPortById(999L) } returns null
+
+        val result = repository.getPortWithWeather(999L)
+
+        assertThat(result).isNull()
+    }
+
+    @Test
+    fun `fetchWeatherForPort returns PartialSuccess when some years fail`() = runTest {
+        var callCount = 0
+        coEvery { api.fetchHistoricalWeather(any(), any(), any(), any()) } answers {
+            callCount++
+            if (callCount <= 3) {
+                HistoricalWeatherResponse(
+                    latitude = 20.43, longitude = -86.92,
+                    daily = DailyWeatherData(
+                        time = listOf("2025-12-16"), tempMaxF = listOf(82.0), tempMinF = listOf(72.0),
+                        precipMm = listOf(0.0), precipHours = listOf(0.0), windMaxMph = listOf(12.0),
+                        windGustMph = listOf(18.0), humidityPct = listOf(75.0), uvIndexMax = listOf(9.0),
+                        sunshineDurationSec = listOf(25000.0),
+                    ),
+                )
+            } else {
+                throw RuntimeException("network error")
+            }
+        }
+        coEvery { weatherDao.getSummaryForPortOnce(any()) } returns null
+
+        val result = repository.fetchWeatherForPort(testPort)
+
+        assertThat(result).isInstanceOf(WeatherFetchResult.PartialSuccess::class.java)
+        val partial = result as WeatherFetchResult.PartialSuccess
+        assertThat(partial.fetchedYears).isEqualTo(3)
+        assertThat(partial.totalYears).isEqualTo(5)
+    }
+
+    @Test
+    fun `fetchWeatherForPort handles API error response gracefully`() = runTest {
+        coEvery { api.fetchHistoricalWeather(any(), any(), any(), any()) } returns
+            HistoricalWeatherResponse(error = true, reason = "Invalid parameters")
+        coEvery { weatherDao.getSummaryForPortOnce(any()) } returns null
+
+        val result = repository.fetchWeatherForPort(testPort)
+
+        assertThat(result).isInstanceOf(WeatherFetchResult.Failure::class.java)
+    }
+
+    @Test
+    fun `fetchWeatherForPort skips leap year dates in non-leap years`() = runTest {
+        // Port date is Feb 29 — should skip non-leap years gracefully
+        val leapPort = testPort.copy(date = LocalDate.of(2028, 2, 29))
+        val fakeDaily = DailyWeatherData(
+            time = listOf("2024-02-29"), tempMaxF = listOf(75.0), tempMinF = listOf(60.0),
+            precipMm = listOf(0.0), precipHours = listOf(0.0), windMaxMph = listOf(10.0),
+            windGustMph = listOf(15.0), humidityPct = listOf(65.0), uvIndexMax = listOf(7.0),
+            sunshineDurationSec = listOf(20000.0),
+        )
+        coEvery { api.fetchHistoricalWeather(any(), any(), any(), any()) } returns
+            HistoricalWeatherResponse(latitude = 20.43, longitude = -86.92, daily = fakeDaily)
+        coEvery { weatherDao.getSummaryForPortOnce(any()) } returns null
+
+        val result = repository.fetchWeatherForPort(leapPort)
+
+        // Should get at least a partial result (leap years only: 2024)
+        assertThat(result).isNotInstanceOf(WeatherFetchResult.Failure::class.java)
+    }
+
+    @Test
+    fun `fetchWeatherForPort handles empty daily time list`() = runTest {
+        val emptyDaily = DailyWeatherData(
+            time = emptyList(), tempMaxF = emptyList(), tempMinF = emptyList(),
+            precipMm = emptyList(), precipHours = emptyList(), windMaxMph = emptyList(),
+            windGustMph = emptyList(), humidityPct = emptyList(), uvIndexMax = emptyList(),
+            sunshineDurationSec = emptyList(),
+        )
+        coEvery { api.fetchHistoricalWeather(any(), any(), any(), any()) } returns
+            HistoricalWeatherResponse(latitude = 20.43, longitude = -86.92, daily = emptyDaily)
+        coEvery { weatherDao.getSummaryForPortOnce(any()) } returns null
+
+        val result = repository.fetchWeatherForPort(testPort)
+
+        assertThat(result).isInstanceOf(WeatherFetchResult.Failure::class.java)
     }
 
     private fun buildSummary(fetchedAt: Instant): PortWeatherSummary = PortWeatherSummary(

@@ -63,7 +63,7 @@ class CruiseRepositoryTest {
     fun setUp() {
         mockkStatic("androidx.room.RoomDatabaseKt")
         coEvery { db.withTransaction(any<suspend () -> Any?>()) } coAnswers {
-            val block = args[0] as suspend () -> Any?
+            val block = args[1] as suspend () -> Any?
             block()
         }
         repository = CruiseRepository(
@@ -149,5 +149,55 @@ class CruiseRepositoryTest {
         assertThat(result!!.cruise.name).isEqualTo("Test Cruise")
         assertThat(result.ports).hasSize(1)
         assertThat(result.ports.first().portName).isEqualTo("Miami")
+    }
+
+    @Test
+    fun `getCruiseWithPorts returns null when cruise does not exist`() = runTest {
+        every { cruiseDao.getCruiseById(999L) } returns flowOf(null)
+
+        val result = repository.getCruiseWithPorts(999L).first()
+
+        assertThat(result).isNull()
+    }
+
+    @Test
+    fun `addPortOfCall delegates to DAO insert and returns id`() = runTest {
+        val port = PortOfCall(
+            cruiseId = 1L,
+            portName = "Cozumel",
+            date = LocalDate.of(2026, 12, 16),
+            type = PortType.PORT_OF_CALL,
+        )
+        coEvery { portOfCallDao.insert(port) } returns 42L
+
+        val id = repository.addPortOfCall(port)
+
+        assertThat(id).isEqualTo(42L)
+        coVerify { portOfCallDao.insert(port) }
+    }
+
+    @Test
+    fun `updatePortOfCall delegates to DAO update`() = runTest {
+        val port = PortOfCall(
+            id = 10L,
+            cruiseId = 1L,
+            portName = "Updated Port",
+            date = LocalDate.of(2026, 12, 17),
+            type = PortType.PORT_OF_CALL,
+        )
+        coEvery { portOfCallDao.update(port) } returns Unit
+
+        repository.updatePortOfCall(port)
+
+        coVerify { portOfCallDao.update(port) }
+    }
+
+    @Test
+    fun `deletePortOfCall delegates to DAO deleteById`() = runTest {
+        coEvery { portOfCallDao.deleteById(10L) } returns Unit
+
+        repository.deletePortOfCall(10L)
+
+        coVerify { portOfCallDao.deleteById(10L) }
     }
 }

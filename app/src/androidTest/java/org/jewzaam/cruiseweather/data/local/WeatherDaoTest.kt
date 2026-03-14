@@ -124,6 +124,67 @@ class WeatherDaoTest {
         assertThat(remaining).isEmpty()
     }
 
+    @Test
+    fun getSummaryForPortOnceReturnsExistingSummary() = runTest {
+        val summary = buildSummary(avgTempHighF = 82.0)
+        weatherDao.insertSummary(summary)
+
+        val result = weatherDao.getSummaryForPortOnce(portId)
+
+        assertThat(result).isNotNull()
+        assertThat(result!!.avgTempHighF).isEqualTo(82.0)
+    }
+
+    @Test
+    fun getSummaryForPortOnceReturnsNullWhenMissing() = runTest {
+        val result = weatherDao.getSummaryForPortOnce(portId)
+        assertThat(result).isNull()
+    }
+
+    @Test
+    fun getYearDataForPortOnceSortedByYear() = runTest {
+        val year2023 = PortWeatherYear(
+            portOfCallId = portId, year = 2023, tempHighF = 80.0, tempLowF = 70.0,
+            precipMm = 0.0, precipHours = 0.0, windMaxMph = 10.0, windGustMph = 15.0,
+            humidityPct = 70.0, uvIndexMax = 8.0, sunshineDurationSec = 20000.0,
+        )
+        val year2025 = year2023.copy(year = 2025, tempHighF = 84.0)
+        val year2024 = year2023.copy(year = 2024, tempHighF = 82.0)
+        // Insert out of order
+        weatherDao.insertWeatherYears(listOf(year2025, year2023, year2024))
+
+        val results = weatherDao.getYearDataForPortOnce(portId)
+
+        assertThat(results).hasSize(3)
+        assertThat(results.map { it.year }).isEqualTo(listOf(2023, 2024, 2025))
+    }
+
+    @Test
+    fun deleteSummaryForPortRemovesSummary() = runTest {
+        weatherDao.insertSummary(buildSummary(avgTempHighF = 80.0))
+
+        weatherDao.deleteSummaryForPort(portId)
+
+        val result = weatherDao.getSummaryForPortOnce(portId)
+        assertThat(result).isNull()
+    }
+
+    @Test
+    fun insertWeatherYearsBatchInsertsMultiple() = runTest {
+        val years = (2021..2025).map { year ->
+            PortWeatherYear(
+                portOfCallId = portId, year = year, tempHighF = 80.0 + year % 5,
+                tempLowF = 70.0, precipMm = 0.0, precipHours = 0.0,
+                windMaxMph = 10.0, windGustMph = 15.0, humidityPct = 70.0,
+                uvIndexMax = 8.0, sunshineDurationSec = 20000.0,
+            )
+        }
+        weatherDao.insertWeatherYears(years)
+
+        val results = weatherDao.getYearDataForPortOnce(portId)
+        assertThat(results).hasSize(5)
+    }
+
     private fun buildSummary(avgTempHighF: Double): PortWeatherSummary = PortWeatherSummary(
         portOfCallId = portId,
         dataSource = "historical_avg",
