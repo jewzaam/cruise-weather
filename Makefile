@@ -4,33 +4,33 @@
 .PHONY: build test lint check clean itest setup-check release release-bundle distribute
 
 build:
-	./gradlew build
+	gradlew build
 
 test:
-	./gradlew test
+	gradlew test
 
 lint:
-	./gradlew lint
+	gradlew lint
 
 check: lint test
 
 clean:
-	./gradlew clean
+	gradlew clean
 
 # Release builds
 release:
-	./gradlew assembleRelease
+	gradlew assembleRelease
 
 release-bundle:
-	./gradlew bundleRelease
+	gradlew bundleRelease
 
 # Upload to Firebase App Distribution
 distribute:
-	./gradlew assembleRelease appDistributionUploadRelease
+	gradlew assembleRelease appDistributionUploadRelease
 
 # Instrumented tests — requires connected device or emulator
 itest:
-	./gradlew connectedAndroidTest
+	gradlew connectedAndroidTest
 
 # Validate development environment setup
 setup-check:

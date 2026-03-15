@@ -3,8 +3,10 @@ package org.jewzaam.cruiseweather.data.repository
 
 import com.google.common.truth.Truth.assertThat
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
+import org.jewzaam.cruiseweather.data.local.cruiseports.CruisePortMatcher
 import org.jewzaam.cruiseweather.data.remote.OpenMeteoApi
 import org.jewzaam.cruiseweather.data.remote.dto.GeocodingResponse
 import org.jewzaam.cruiseweather.geocodingResult
@@ -14,11 +16,14 @@ import org.junit.Test
 class GeocodingRepositoryTest {
 
     private val api = mockk<OpenMeteoApi>()
+    private val cruisePortMatcher = mockk<CruisePortMatcher>()
     private lateinit var repository: GeocodingRepository
 
     @Before
     fun setUp() {
-        repository = GeocodingRepository(api = api)
+        // Default: no local port matches, so tests exercise the API path
+        every { cruisePortMatcher.search(any(), any()) } returns emptyList()
+        repository = GeocodingRepository(api = api, cruisePortMatcher = cruisePortMatcher)
     }
 
     @Test

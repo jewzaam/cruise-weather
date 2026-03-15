@@ -2,6 +2,7 @@
 package org.jewzaam.cruiseweather.domain.usecase
 
 import org.jewzaam.cruiseweather.data.local.entity.PortOfCall
+import org.jewzaam.cruiseweather.data.local.entity.PortType
 import org.jewzaam.cruiseweather.data.repository.WeatherFetchResult
 import org.jewzaam.cruiseweather.data.repository.WeatherRepository
 import org.jewzaam.cruiseweather.domain.model.CruiseWithPorts
@@ -22,6 +23,8 @@ class FetchWeatherForCruiseUseCase @Inject constructor(
     ): List<PortFetchResult> {
         val results = mutableListOf<PortFetchResult>()
         for (port in cruiseWithPorts.ports) {
+            // Sea days have no location — skip silently
+            if (port.type == PortType.SEA_DAY) continue
             if (port.latitude == null || port.longitude == null) {
                 Timber.w("Skipping port %d: no coordinates", port.id)
                 results.add(PortFetchResult(port = port, result = WeatherFetchResult.NoCoordinates))

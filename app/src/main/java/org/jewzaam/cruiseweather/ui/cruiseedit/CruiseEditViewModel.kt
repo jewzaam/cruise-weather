@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.jewzaam.cruiseweather.data.local.cruiseports.CruisePort
+import org.jewzaam.cruiseweather.data.local.cruiseports.CruisePortMatcher
 import org.jewzaam.cruiseweather.data.local.entity.Cruise
 import org.jewzaam.cruiseweather.data.local.entity.PortOfCall
 import org.jewzaam.cruiseweather.data.local.entity.PortType
@@ -27,8 +29,10 @@ data class CruiseEditUiState(
     // Cruise fields
     val cruiseId: Long = 0L,
     val name: String = "",
+    val cruiseLine: String = "",
+    val shipName: String = "",
     val sailDate: LocalDate = LocalDate.now(),
-    val returnDate: LocalDate = LocalDate.now().plusDays(7),
+    val returnDate: LocalDate = LocalDate.now(),
     // Departure port
     val departurePortName: String = "",
     val selectedDeparture: GeocodingCandidate? = null,
@@ -44,6 +48,7 @@ data class CruiseEditUiState(
 class CruiseEditViewModel @Inject constructor(
     private val cruiseRepository: CruiseRepository,
     private val geocodePortUseCase: GeocodePortUseCase,
+    private val cruisePortMatcher: CruisePortMatcher,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CruiseEditUiState())
@@ -68,6 +73,8 @@ class CruiseEditViewModel @Inject constructor(
                         isLoading = false,
                         cruiseId = cruise.id,
                         name = cruise.name,
+                        cruiseLine = cruise.cruiseLine,
+                        shipName = cruise.shipName,
                         sailDate = cruise.sailDate,
                         returnDate = cruise.returnDate,
                         departurePortName = departure?.resolvedDisplayName
@@ -110,6 +117,8 @@ class CruiseEditViewModel @Inject constructor(
     }
 
     fun onNameChange(value: String) = _uiState.update { it.copy(name = value) }
+    fun onCruiseLineChange(value: String) = _uiState.update { it.copy(cruiseLine = value) }
+    fun onShipNameChange(value: String) = _uiState.update { it.copy(shipName = value) }
     fun onSailDateChange(value: LocalDate) = _uiState.update { it.copy(sailDate = value) }
     fun onReturnDateChange(value: LocalDate) = _uiState.update { it.copy(returnDate = value) }
     fun onDateRangeChange(sailDate: LocalDate, returnDate: LocalDate) =
@@ -140,11 +149,7 @@ class CruiseEditViewModel @Inject constructor(
             return
         }
         if (state.selectedDeparture == null) {
-            _uiState.update { it.copy(error = "Departure port must be geocoded") }
-            return
-        }
-        if (state.returnDate < state.sailDate) {
-            _uiState.update { it.copy(error = "Return date must be on or after sail date") }
+            _uiState.update { it.copy(error = "Build an itinerary first") }
             return
         }
 
@@ -155,6 +160,8 @@ class CruiseEditViewModel @Inject constructor(
                 val cruise = Cruise(
                     id = state.cruiseId,
                     name = state.name.trim(),
+                    cruiseLine = state.cruiseLine,
+                    shipName = state.shipName.trim(),
                     sailDate = state.sailDate,
                     returnDate = state.returnDate,
                     departurePortName = dep.displayName,
@@ -245,6 +252,164 @@ class CruiseEditViewModel @Inject constructor(
     }
 
     fun clearError() = _uiState.update { it.copy(error = null) }
+
+    fun searchLocalPorts(query: String): List<CruisePort> =
+        cruisePortMatcher.search(query)
+
+    fun generateItinerarySlots(): List<ItinerarySlot>? {
+        val state = _uiState.value
+        val totalDays = java.time.temporal.ChronoUnit.DAYS.between(state.sailDate, state.returnDate).toInt() + 1
+        if (totalDays < 2) return null
+
+        // Build a map of date → port for quick lookup
+        val allPorts = state.portsOfCall.associateBy { it.date }
+
+        // Find departure and return ports from DB
+        // (these aren't in portsOfCall — they're separate)
+        val depName = state.departurePortName
+        val depCandidate = state.selectedDeparture
+        val retName = if (state.hasDifferentReturnPort) state.returnPortName else ""
+        val retCandidate = state.selectedReturn
+
+        return (1..totalDays).map { dayNum ->
+            val date = state.sailDate.plusDays(dayNum.toLong() - 1)
+            val isFirst = dayNum == 1
+            val isLast = dayNum == totalDays
+
+            when {
+                isFirst -> ItinerarySlot(
+                    dayNumber = dayNum,
+                    date = date,
+                    portQuery = depName,
+                    resolvedPort = depCandidate?.let {
+                        CruisePort("dep", it.displayName, it.latitude, it.longitude, "", emptyList())
+                    },
+                )
+                isLast -> ItinerarySlot(
+                    dayNumber = dayNum,
+                    date = date,
+                    portQuery = retName,
+                    resolvedPort = retCandidate?.let {
+                        CruisePort("ret", it.displayName, it.latitude, it.longitude, "", emptyList())
+                    },
+                )
+                else -> {
+                    val port = allPorts[date]
+                    ItinerarySlot(
+                        dayNumber = dayNum,
+                        date = date,
+                        portQuery = when (port?.type) {
+                            PortType.SEA_DAY -> ""
+                            null -> ""
+                            else -> port.portName
+                        },
+                        resolvedPort = port?.let {
+                            if (it.latitude != null && it.longitude != null && it.type != PortType.SEA_DAY) {
+                                CruisePort(
+                                    "existing-${it.id}", it.resolvedDisplayName ?: it.portName,
+                                    it.latitude, it.longitude, "", emptyList(),
+                                )
+                            } else null
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    fun saveItinerary(slots: List<ItinerarySlot>) {
+        val state = _uiState.value
+
+        if (slots.isEmpty()) return
+
+        // Last slot is always the return day.
+        // Intermediate slots are everything except the last.
+        val intermediateSlots = slots.dropLast(1)
+        val returnSlot = slots.last()
+
+        // Return date = sail date + total slots (Day 1 is departure, slots are Day 2..N)
+        val returnDate = state.sailDate.plusDays(slots.size.toLong())
+
+        // Departure port: if Day 1 was edited in the builder, update it
+        val firstSlot = slots.firstOrNull()
+        val updatedDepartureName: String?
+        val updatedDepartureCandidate: GeocodingCandidate?
+        if (firstSlot != null && firstSlot.dayNumber == 1 && firstSlot.resolvedPort != null) {
+            updatedDepartureName = firstSlot.resolvedPort.displayName
+            updatedDepartureCandidate = GeocodingCandidate(
+                id = firstSlot.resolvedPort.id.hashCode().toLong(),
+                displayName = firstSlot.resolvedPort.displayName,
+                latitude = firstSlot.resolvedPort.latitude,
+                longitude = firstSlot.resolvedPort.longitude,
+            )
+        } else {
+            updatedDepartureName = null
+            updatedDepartureCandidate = null
+        }
+
+        // Determine actual intermediate slots (skip Day 1 if it was the departure)
+        val portSlots = if (intermediateSlots.firstOrNull()?.dayNumber == 1) {
+            intermediateSlots.drop(1)
+        } else {
+            intermediateSlots
+        }
+
+        // Return port: filled return slot with a different port = different return port
+        val dep = updatedDepartureCandidate ?: state.selectedDeparture
+        val returnPortName: String?
+        val returnCandidate: GeocodingCandidate?
+        if (returnSlot.portQuery.isNotBlank() && returnSlot.resolvedPort != null &&
+            returnSlot.resolvedPort.displayName != dep?.displayName
+        ) {
+            returnPortName = returnSlot.resolvedPort.displayName
+            returnCandidate = GeocodingCandidate(
+                id = returnSlot.resolvedPort.id.hashCode().toLong(),
+                displayName = returnSlot.resolvedPort.displayName,
+                latitude = returnSlot.resolvedPort.latitude,
+                longitude = returnSlot.resolvedPort.longitude,
+            )
+        } else {
+            returnPortName = null
+            returnCandidate = null
+        }
+
+        // Build ports of call from intermediate slots only
+        val intermediatePorts = portSlots.map { slot ->
+            if (slot.portQuery.isBlank()) {
+                PortOfCall(
+                    cruiseId = state.cruiseId,
+                    portName = "At Sea",
+                    date = slot.date,
+                    type = PortType.SEA_DAY,
+                    sortOrder = slot.dayNumber * 10,
+                )
+            } else {
+                val port = slot.resolvedPort
+                PortOfCall(
+                    cruiseId = state.cruiseId,
+                    portName = slot.portQuery,
+                    date = slot.date,
+                    type = PortType.PORT_OF_CALL,
+                    latitude = port?.latitude,
+                    longitude = port?.longitude,
+                    resolvedDisplayName = port?.displayName,
+                    sortOrder = slot.dayNumber * 10,
+                )
+            }
+        }
+
+        _uiState.update {
+            it.copy(
+                returnDate = returnDate,
+                departurePortName = updatedDepartureName ?: it.departurePortName,
+                selectedDeparture = updatedDepartureCandidate ?: it.selectedDeparture,
+                hasDifferentReturnPort = returnPortName != null,
+                returnPortName = returnPortName ?: "",
+                selectedReturn = returnCandidate,
+                portsOfCall = intermediatePorts,
+            )
+        }
+    }
 
     suspend fun geocodeQuery(query: String): List<GeocodingCandidate> =
         geocodePortUseCase(query = query).getOrDefault(emptyList())

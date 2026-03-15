@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import org.jewzaam.cruiseweather.data.local.entity.CruiseLine
 import org.jewzaam.cruiseweather.data.local.entity.PortOfCall
 import org.jewzaam.cruiseweather.data.local.entity.PortType
 import org.jewzaam.cruiseweather.ui.components.LoadingOverlay
@@ -120,10 +121,24 @@ fun CruiseDetailScreen(
                 }
             }
 
-            // Day-by-day itinerary
+            // Cruise metadata
             val cruiseWithPorts = uiState.cruiseWithPorts
             if (cruiseWithPorts != null) {
                 val cruise = cruiseWithPorts.cruise
+                val cruiseLineDisplay = CruiseLine.entries.find { it.name == cruise.cruiseLine }?.displayName
+                val metaParts = listOfNotNull(
+                    cruiseLineDisplay,
+                    cruise.shipName.takeIf { it.isNotBlank() },
+                )
+                if (metaParts.isNotEmpty()) {
+                    Text(
+                        text = metaParts.joinToString("  \u2022  "),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+
+                // Day-by-day itinerary
                 val portsByDate = cruiseWithPorts.allPortsChronological
                     .groupBy { it.date }
                 val totalDays = ChronoUnit.DAYS.between(cruise.sailDate, cruise.returnDate).toInt() + 1
@@ -131,8 +146,13 @@ fun CruiseDetailScreen(
                     val date = cruise.sailDate.plusDays(dayIndex.toLong())
                     val dayNumber = dayIndex + 1
                     val portsOnDay = portsByDate[date]
-                    if (portsOnDay != null) {
-                        portsOnDay.forEach { port ->
+                    // Separate sea days from actual ports
+                    val seaDays = portsOnDay?.filter { it.type == PortType.SEA_DAY }
+                    val realPorts = portsOnDay?.filter { it.type != PortType.SEA_DAY }
+
+                    if (!realPorts.isNullOrEmpty()) {
+                        // Day has real ports — show weather cards
+                        realPorts.forEach { port ->
                             val isExpanded = expandedPortLocalId == port.localId
                             WeatherCard(
                                 port = port,
@@ -147,10 +167,20 @@ fun CruiseDetailScreen(
                             )
                         }
                     } else {
+                        // Sea day (with or without saved SEA_DAY entity)
+                        val seaDayEntity = seaDays?.firstOrNull()
                         SeaDayRow(
                             dayNumber = dayNumber,
+                            date = date,
+                            notes = seaDayEntity?.notes?.takeIf { it.isNotBlank() },
                             onAddPort = { addingPortOnDate = date },
-                            onAddNote = { addingSeaDayOnDate = date },
+                            onAddNote = {
+                                if (seaDayEntity != null) {
+                                    editingPort = seaDayEntity
+                                } else {
+                                    addingSeaDayOnDate = date
+                                }
+                            },
                         )
                     }
                 }
@@ -222,31 +252,42 @@ fun CruiseDetailScreen(
 @Composable
 private fun SeaDayRow(
     dayNumber: Int,
+    date: LocalDate,
+    notes: String? = null,
     onAddPort: () -> Unit,
     onAddNote: () -> Unit,
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 24.dp, vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = "Day $dayNumber  •  At Sea",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f),
-        )
-        TextButton(onClick = onAddNote) {
-            Text("Note", style = MaterialTheme.typography.labelSmall)
-        }
-        TextButton(onClick = onAddPort) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = "Add port on day $dayNumber",
-                modifier = Modifier.padding(end = 4.dp),
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Day $dayNumber  •  ${DATE_FORMAT.format(date)}  •  At Sea",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
             )
-            Text("Port", style = MaterialTheme.typography.labelSmall)
+            TextButton(onClick = onAddNote) {
+                Text("Note", style = MaterialTheme.typography.labelSmall)
+            }
+            TextButton(onClick = onAddPort) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Add port on day $dayNumber",
+                    modifier = Modifier.padding(end = 4.dp),
+                )
+                Text("Port", style = MaterialTheme.typography.labelSmall)
+            }
+        }
+        if (notes != null) {
+            Text(
+                text = notes,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 8.dp, bottom = 4.dp),
+            )
         }
     }
 }

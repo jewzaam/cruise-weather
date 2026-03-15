@@ -17,6 +17,7 @@ import kotlinx.coroutines.test.setMain
 import org.jewzaam.cruiseweather.cruise
 import org.jewzaam.cruiseweather.cruiseWithPorts
 import org.jewzaam.cruiseweather.data.local.entity.PortType
+import org.jewzaam.cruiseweather.data.local.cruiseports.CruisePortMatcher
 import org.jewzaam.cruiseweather.data.repository.CruiseRepository
 import org.jewzaam.cruiseweather.domain.usecase.GeocodePortUseCase
 import org.jewzaam.cruiseweather.geocodingCandidate
@@ -31,15 +32,18 @@ class CruiseEditViewModelTest {
 
     private val cruiseRepository = mockk<CruiseRepository>(relaxed = true)
     private val geocodePortUseCase = mockk<GeocodePortUseCase>()
+    private val cruisePortMatcher = mockk<CruisePortMatcher>()
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var viewModel: CruiseEditViewModel
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
+        every { cruisePortMatcher.search(any(), any()) } returns emptyList()
         viewModel = CruiseEditViewModel(
             cruiseRepository = cruiseRepository,
             geocodePortUseCase = geocodePortUseCase,
+            cruisePortMatcher = cruisePortMatcher,
         )
     }
 
@@ -143,24 +147,12 @@ class CruiseEditViewModelTest {
     }
 
     @Test
-    fun `saveCruise rejects missing departure geocode`() = runTest {
+    fun `saveCruise rejects missing itinerary`() = runTest {
         viewModel.onNameChange("Test")
         viewModel.saveCruise()
         advanceUntilIdle()
 
-        assertThat(viewModel.uiState.value.error).isEqualTo("Departure port must be geocoded")
-    }
-
-    @Test
-    fun `saveCruise rejects return date before sail date`() = runTest {
-        viewModel.onNameChange("Test")
-        viewModel.onDepartureChanged("Miami", geocodingCandidate())
-        viewModel.onSailDateChange(LocalDate.of(2027, 1, 20))
-        viewModel.onReturnDateChange(LocalDate.of(2027, 1, 15))
-        viewModel.saveCruise()
-        advanceUntilIdle()
-
-        assertThat(viewModel.uiState.value.error).isEqualTo("Return date must be on or after sail date")
+        assertThat(viewModel.uiState.value.error).isEqualTo("Build an itinerary first")
     }
 
     // --- Save ---

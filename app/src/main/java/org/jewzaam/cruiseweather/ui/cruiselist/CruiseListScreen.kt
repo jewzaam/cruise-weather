@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.jewzaam.cruiseweather.data.local.entity.Cruise
+import org.jewzaam.cruiseweather.data.local.entity.CruiseLine
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 
@@ -106,12 +107,19 @@ private fun CruiseListItem(
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
 
+    val cruiseLineDisplay = CruiseLine.entries.find { it.name == cruise.cruiseLine }?.displayName
+    val shipLine = listOfNotNull(cruiseLineDisplay, cruise.shipName.takeIf { it.isNotBlank() })
+        .joinToString(" \u2022 ")
+
     ListItem(
         headlineContent = { Text(cruise.name) },
         supportingContent = {
             Text(
-                "${DATE_FORMAT.format(cruise.sailDate)} – ${DATE_FORMAT.format(cruise.returnDate)}\n" +
-                    cruise.departurePortName,
+                buildString {
+                    if (shipLine.isNotBlank()) appendLine(shipLine)
+                    append("${DATE_FORMAT.format(cruise.sailDate)} – ${DATE_FORMAT.format(cruise.returnDate)}")
+                    append("\n${cruise.departurePortName}")
+                },
             )
         },
         trailingContent = {

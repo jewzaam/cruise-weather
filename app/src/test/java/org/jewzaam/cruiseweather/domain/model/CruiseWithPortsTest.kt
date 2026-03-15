@@ -73,13 +73,13 @@ class CruiseWithPortsTest {
     }
 
     @Test
-    fun `portsOfCall excludes SEA_DAY type`() {
+    fun `portsOfCall includes SEA_DAY and PORT_OF_CALL but excludes DEPARTURE and RETURN`() {
         val dep = port(id = 1, type = PortType.DEPARTURE, date = LocalDate.of(2026, 12, 14))
         val sea = port(id = 2, type = PortType.SEA_DAY, portName = "Sea Day", date = LocalDate.of(2026, 12, 15))
         val poc = port(id = 3, type = PortType.PORT_OF_CALL, portName = "Cozumel", date = LocalDate.of(2026, 12, 16))
         val ret = port(id = 4, type = PortType.RETURN, date = LocalDate.of(2026, 12, 21))
         val cwp = CruiseWithPorts(cruise = cruise(id = 1), ports = listOf(dep, sea, poc, ret))
-        assertThat(cwp.portsOfCall).containsExactly(poc)
+        assertThat(cwp.portsOfCall).containsExactly(sea, poc)
     }
 
     @Test

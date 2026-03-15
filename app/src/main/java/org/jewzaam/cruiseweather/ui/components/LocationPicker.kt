@@ -7,8 +7,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -190,20 +195,27 @@ fun LocationPicker(
                     )
                 }
             } else {
-                Text(
-                    text = displayName,
-                    style = MaterialTheme.typography.titleMedium,
-                )
-            }
-            TextButton(
-                onClick = {
-                    selectedCandidate = null
-                    candidates = emptyList()
-                    searchQuery = ""
-                    onSelectionChanged("", null)
-                },
-            ) {
-                Text("Change location", style = MaterialTheme.typography.labelSmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = displayName,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(
+                        onClick = {
+                            selectedCandidate = null
+                            candidates = emptyList()
+                            searchQuery = ""
+                            onSelectionChanged("", null)
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Change location",
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(

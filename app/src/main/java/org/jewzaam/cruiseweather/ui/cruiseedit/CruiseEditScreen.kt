@@ -13,14 +13,18 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DateRangePicker
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -29,22 +33,19 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberDateRangePickerState
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import org.jewzaam.cruiseweather.data.local.entity.CruiseLine
 import org.jewzaam.cruiseweather.data.local.entity.PortOfCall
-import org.jewzaam.cruiseweather.ui.components.LocationPicker
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -74,7 +75,8 @@ fun CruiseEditScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var showPortSheet by remember { mutableStateOf(false) }
     var editingPort by remember { mutableStateOf<PortOfCall?>(null) }
-    var showDateRangePicker by remember { mutableStateOf(false) }
+    var showSailDatePicker by remember { mutableStateOf(false) }
+    var showItineraryBuilder by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.isSaved) {
         if (uiState.isSaved) {
@@ -138,102 +140,164 @@ fun CruiseEditScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Date range display — tap to open range picker
-            val dateLabel = "${DATE_FORMAT.format(uiState.sailDate)} – ${DATE_FORMAT.format(uiState.returnDate)}"
-            val totalDays = ChronoUnit.DAYS.between(uiState.sailDate, uiState.returnDate) + 1
-            OutlinedTextField(
-                value = dateLabel,
-                onValueChange = {},
-                label = { Text("Dates ($totalDays days)") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { showDateRangePicker = true },
-                readOnly = true,
-                singleLine = true,
-                enabled = false,
-            )
-            TextButton(onClick = { showDateRangePicker = true }) {
-                Text("Change dates")
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Departure port — uses shared LocationPicker
-            LocationPicker(
-                label = "Departure Port",
-                initialDisplayName = uiState.departurePortName,
-                initialCandidate = uiState.selectedDeparture,
-                onSelectionChanged = viewModel::onDepartureChanged,
-                onGeocode = { query -> viewModel.geocodeQuery(query) },
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Different return port checkbox
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(
-                    checked = uiState.hasDifferentReturnPort,
-                    onCheckedChange = viewModel::onHasDifferentReturnPortChange,
+            // Cruise line dropdown
+            var cruiseLineExpanded by remember { mutableStateOf(false) }
+            val selectedCruiseLine = CruiseLine.entries.find { it.name == uiState.cruiseLine }
+            ExposedDropdownMenuBox(
+                expanded = cruiseLineExpanded,
+                onExpandedChange = { cruiseLineExpanded = it },
+            ) {
+                OutlinedTextField(
+                    value = selectedCruiseLine?.displayName ?: "",
+                    onValueChange = {},
+                    label = { Text("Cruise Line") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                    readOnly = true,
+                    singleLine = true,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = cruiseLineExpanded) },
+                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
                 )
-                Text("Different return port")
-            }
-
-            if (uiState.hasDifferentReturnPort) {
-                Spacer(modifier = Modifier.height(8.dp))
-                LocationPicker(
-                    label = "Return Port",
-                    initialDisplayName = uiState.returnPortName,
-                    initialCandidate = uiState.selectedReturn,
-                    onSelectionChanged = viewModel::onReturnChanged,
-                    onGeocode = { query -> viewModel.geocodeQuery(query) },
-                )
-            }
-
-            // Ports of call section — only shown when editing existing cruise
-            if (!isNewCruise) {
-                Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(text = "Ports of Call")
-
-                if (uiState.portsOfCall.isEmpty()) {
-                    Text(
-                        text = "No ports of call yet.",
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
-                } else {
-                    uiState.portsOfCall.forEach { port ->
-                        val dayOfCruise = ChronoUnit.DAYS.between(uiState.sailDate, port.date) + 1
-                        val displayName = port.portName
-                        val geocodeStatus = if (port.latitude != null) "geocoded" else "not geocoded"
-                        ListItem(
-                            headlineContent = { Text(displayName) },
-                            supportingContent = { Text("Day $dayOfCruise  \u2022  ${port.date}  \u2022  $geocodeStatus") },
-                            trailingContent = {
-                                Icon(
-                                    imageVector = Icons.Default.Edit,
-                                    contentDescription = "Edit $displayName",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                ExposedDropdownMenu(
+                    expanded = cruiseLineExpanded,
+                    onDismissRequest = { cruiseLineExpanded = false },
+                ) {
+                    CruiseLine.entries.forEach { line ->
+                        DropdownMenuItem(
+                            text = { Text(line.displayName) },
+                            onClick = {
+                                viewModel.onCruiseLineChange(line.name)
+                                cruiseLineExpanded = false
                             },
-                            modifier = Modifier.clickable { editingPort = port },
                         )
-                        HorizontalDivider()
                     }
                 }
+            }
 
-                OutlinedButton(
-                    onClick = { showPortSheet = true },
-                    modifier = Modifier.padding(top = 8.dp),
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Ship name
+            OutlinedTextField(
+                value = uiState.shipName,
+                onValueChange = viewModel::onShipNameChange,
+                label = { Text("Ship Name") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Sail date — tap to open date picker
+            OutlinedTextField(
+                value = DATE_FORMAT.format(uiState.sailDate),
+                onValueChange = {},
+                label = { Text("Sail Date") },
+                modifier = Modifier.fillMaxWidth(),
+                readOnly = true,
+                singleLine = true,
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                    .also { interactionSource ->
+                        LaunchedEffect(interactionSource) {
+                            interactionSource.interactions.collect { interaction ->
+                                if (interaction is androidx.compose.foundation.interaction.PressInteraction.Release) {
+                                    showSailDatePicker = true
+                                }
+                            }
+                        }
+                    },
+            )
+
+            // Show return date + duration (read-only, derived from itinerary)
+            if (!isNewCruise && uiState.portsOfCall.isNotEmpty()) {
+                val totalDays = ChronoUnit.DAYS.between(uiState.sailDate, uiState.returnDate) + 1
+                Text(
+                    text = "Return: ${DATE_FORMAT.format(uiState.returnDate)} ($totalDays days)",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+            }
+
+            // Itinerary section
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(text = "Itinerary")
+
+            if (uiState.portsOfCall.isEmpty() && uiState.departurePortName.isBlank()) {
+                Text(
+                    text = "No itinerary yet.",
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+                Button(
+                    onClick = { showItineraryBuilder = true },
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("+ Add Port of Call")
+                    Text("Build Itinerary")
+                }
+            } else {
+                // Show departure
+                if (uiState.departurePortName.isNotBlank()) {
+                    ListItem(
+                        headlineContent = { Text(uiState.departurePortName) },
+                        supportingContent = { Text("Day 1  \u2022  ${uiState.sailDate}  \u2022  Departure") },
+                    )
+                    HorizontalDivider()
+                }
+
+                // Show intermediate ports
+                uiState.portsOfCall.forEach { port ->
+                    val dayOfCruise = ChronoUnit.DAYS.between(uiState.sailDate, port.date) + 1
+                    val displayName = port.portName
+                    val geocodeStatus = if (port.latitude != null) "geocoded" else "not geocoded"
+                    ListItem(
+                        headlineContent = { Text(displayName) },
+                        supportingContent = { Text("Day $dayOfCruise  \u2022  ${port.date}  \u2022  $geocodeStatus") },
+                        trailingContent = {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Edit $displayName",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                        modifier = Modifier.clickable { editingPort = port },
+                    )
+                    HorizontalDivider()
+                }
+
+                // Show return
+                val returnDisplay = if (uiState.hasDifferentReturnPort && uiState.returnPortName.isNotBlank()) {
+                    uiState.returnPortName
+                } else if (uiState.departurePortName.isNotBlank()) {
+                    uiState.departurePortName
+                } else null
+                if (returnDisplay != null && uiState.returnDate != uiState.sailDate) {
+                    val totalDays = ChronoUnit.DAYS.between(uiState.sailDate, uiState.returnDate) + 1
+                    ListItem(
+                        headlineContent = { Text(returnDisplay) },
+                        supportingContent = { Text("Day $totalDays  \u2022  ${uiState.returnDate}  \u2022  Return") },
+                    )
+                    HorizontalDivider()
+                }
+
+                Row(modifier = Modifier.padding(top = 8.dp)) {
+                    OutlinedButton(onClick = { showItineraryBuilder = true }) {
+                        Text("Rebuild Itinerary")
+                    }
+                    if (!isNewCruise) {
+                        Spacer(modifier = Modifier.weight(1f))
+                        OutlinedButton(onClick = { showPortSheet = true }) {
+                            Text("+ Add Port")
+                        }
+                    }
                 }
             }
         }
     }
 
-    // Port of call add/edit sheets — only for existing cruises
+    // Port of call add/edit sheets — only for saved cruises
     if (!isNewCruise) {
         if (showPortSheet) {
             val lastPortDate = uiState.portsOfCall.maxByOrNull { it.date }?.date
@@ -247,96 +311,81 @@ fun CruiseEditScreen(
                 onGeocode = { query -> viewModel.geocodeQuery(query) },
             )
         }
-
-        editingPort?.let { port ->
-            PortOfCallSheet(
-                cruiseId = uiState.cruiseId,
-                sailDate = uiState.sailDate,
-                returnDate = uiState.returnDate,
-                existingPort = port,
-                onSave = { updated -> viewModel.updatePortOfCall(updated) },
-                onDelete = { deleted -> viewModel.deletePortOfCall(deleted) },
-                onDismiss = { editingPort = null },
-                onGeocode = { query -> viewModel.geocodeQuery(query) },
-            )
-        }
     }
 
-    if (showDateRangePicker) {
-        DateRangePickerDialog(
-            initialSailDate = uiState.sailDate,
-            initialReturnDate = uiState.returnDate,
-            onConfirm = { sail, ret ->
-                viewModel.onDateRangeChange(sail, ret)
-                showDateRangePicker = false
+    editingPort?.let { port ->
+        PortOfCallSheet(
+            cruiseId = uiState.cruiseId,
+            sailDate = uiState.sailDate,
+            returnDate = uiState.returnDate,
+            existingPort = port,
+            onSave = { updated -> viewModel.updatePortOfCall(updated) },
+            onDelete = { deleted -> viewModel.deletePortOfCall(deleted) },
+            onDismiss = { editingPort = null },
+            onGeocode = { query -> viewModel.geocodeQuery(query) },
+        )
+    }
+
+    if (showItineraryBuilder) {
+        ItineraryBuilderSheet(
+            sailDate = uiState.sailDate,
+            departurePortName = uiState.departurePortName,
+            existingSlots = viewModel.generateItinerarySlots(),
+            onSearchPorts = { query -> viewModel.searchLocalPorts(query) },
+            onDone = { slots ->
+                viewModel.saveItinerary(slots)
+                showItineraryBuilder = false
             },
-            onDismiss = { showDateRangePicker = false },
+            onDismiss = { showItineraryBuilder = false },
+        )
+    }
+
+    if (showSailDatePicker) {
+        SailDatePickerDialog(
+            initialDate = uiState.sailDate,
+            onConfirm = { date ->
+                viewModel.onSailDateChange(date)
+                showSailDatePicker = false
+            },
+            onDismiss = { showSailDatePicker = false },
         )
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DateRangePickerDialog(
-    initialSailDate: LocalDate,
-    initialReturnDate: LocalDate,
-    onConfirm: (LocalDate, LocalDate) -> Unit,
+private fun SailDatePickerDialog(
+    initialDate: LocalDate,
+    onConfirm: (LocalDate) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val startMillis = initialSailDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
-    val endMillis = initialReturnDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
-    val dateRangePickerState = rememberDateRangePickerState(
-        initialSelectedStartDateMillis = startMillis,
-        initialSelectedEndDateMillis = endMillis,
-    )
+    val millis = initialDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+    val datePickerState = rememberDatePickerState(initialSelectedDateMillis = millis)
 
-    val hasValidRange = dateRangePickerState.selectedStartDateMillis != null
-        && dateRangePickerState.selectedEndDateMillis != null
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-        ) {
-            DateRangePicker(
-                state = dateRangePickerState,
-                modifier = Modifier.weight(1f),
-                title = {
-                    Text(
-                        text = "Select cruise dates",
-                        modifier = Modifier.padding(start = 24.dp, top = 16.dp),
-                    )
-                },
-                headline = null,
-                showModeToggle = true,
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp, bottom = 8.dp),
-            ) {
-                Spacer(modifier = Modifier.weight(1f))
-                OutlinedButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.padding(end = 8.dp),
-                ) {
-                    Text("Cancel", style = MaterialTheme.typography.labelLarge)
-                }
-                Button(
-                    onClick = {
-                        val startMs = dateRangePickerState.selectedStartDateMillis!!
-                        val endMs = dateRangePickerState.selectedEndDateMillis!!
-                        val sail = Instant.ofEpochMilli(startMs).atZone(ZoneOffset.UTC).toLocalDate()
-                        val ret = Instant.ofEpochMilli(endMs).atZone(ZoneOffset.UTC).toLocalDate()
-                        onConfirm(sail, ret)
-                    },
-                    enabled = hasValidRange,
-                ) {
-                    Text("Confirm", style = MaterialTheme.typography.labelLarge)
-                }
-            }
+    // Auto-close when user taps a date
+    LaunchedEffect(datePickerState.selectedDateMillis) {
+        val selectedMs = datePickerState.selectedDateMillis ?: return@LaunchedEffect
+        if (selectedMs != millis) {
+            val date = Instant.ofEpochMilli(selectedMs).atZone(ZoneOffset.UTC).toLocalDate()
+            onConfirm(date)
         }
+    }
+
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    ) {
+        DatePicker(
+            state = datePickerState,
+            title = {
+                Text(
+                    text = "Select sail date",
+                    modifier = Modifier.padding(start = 24.dp, top = 16.dp),
+                )
+            },
+        )
     }
 }

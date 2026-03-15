@@ -11,7 +11,9 @@ data class CruiseWithPorts(
 ) {
     val departurePort: PortOfCall? get() = ports.firstOrNull { it.type == PortType.DEPARTURE }
     val returnPort: PortOfCall? get() = ports.firstOrNull { it.type == PortType.RETURN }
-    val portsOfCall: List<PortOfCall> get() = ports.filter { it.type == PortType.PORT_OF_CALL }
+    val portsOfCall: List<PortOfCall> get() = ports.filter {
+        it.type == PortType.PORT_OF_CALL || it.type == PortType.SEA_DAY
+    }
 
     /** All ports in calendar order for the detail view. */
     val allPortsChronological: List<PortOfCall>

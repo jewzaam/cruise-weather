@@ -14,6 +14,8 @@ data class Cruise(
     val returnDate: LocalDate,
     // Denormalized for fast list-screen display without joins.
     // Coordinates live on the PortOfCall rows (type = DEPARTURE / RETURN).
+    val cruiseLine: String = "",
+    val shipName: String = "",
     val departurePortName: String,
     val returnPortName: String? = null, // null = same port as departure
     val createdAt: Instant = Instant.now(),
