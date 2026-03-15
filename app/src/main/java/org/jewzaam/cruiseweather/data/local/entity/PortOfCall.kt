@@ -34,4 +34,5 @@ data class PortOfCall(
     val longitude: Double? = null,
     val resolvedDisplayName: String? = null,
     val sortOrder: Int = 0,
+    val notes: String = "",
 )

@@ -128,6 +128,21 @@ class WeatherRepositoryTest {
     }
 
     @Test
+    fun `isFetchNeeded returns true when summary has zero sunrise minutes`() = runTest {
+        val staleSummary = buildSummary(fetchedAt = Instant.now()).copy(avgSunriseMinutes = 0.0)
+        coEvery { weatherDao.getSummaryForPortOnce(1L) } returns staleSummary
+        assertThat(repository.isFetchNeeded(1L)).isTrue()
+    }
+
+    @Test
+    fun `isFetchNeeded returns false when summary has nonzero sunrise minutes`() = runTest {
+        val freshSummary = buildSummary(fetchedAt = Instant.now())
+        // buildSummary sets avgSunriseMinutes = 390.0 (nonzero)
+        coEvery { weatherDao.getSummaryForPortOnce(1L) } returns freshSummary
+        assertThat(repository.isFetchNeeded(1L)).isFalse()
+    }
+
+    @Test
     fun `computeSummary rain probability counts years above 1mm threshold`() = runTest {
         // 3 rainy, 2 dry — expect rainyYearCount = 3
         val fakeDaily = DailyWeatherData(

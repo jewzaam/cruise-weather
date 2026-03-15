@@ -3,6 +3,7 @@ package org.jewzaam.cruiseweather.domain.usecase
 
 import com.google.common.truth.Truth.assertThat
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.flowOf
@@ -170,6 +171,23 @@ class CompareCruisesUseCaseTest {
 
         assertThat(results).hasSize(1)
         assertThat(results.first().rainProbabilityPct).isWithin(0.01).of(40.0)
+    }
+
+    @Test
+    fun `invokes fetchWeatherUseCase before computing comparison`() = runTest {
+        val summary1 = buildSummary(portOfCallId = 10L)
+        every { cruiseRepository.getCruiseWithPorts(1L) } returns flowOf(
+            CruiseWithPorts(cruise = cruise1, ports = listOf(port1)),
+        )
+        coEvery { weatherRepository.getPortWithWeather(10L) } returns PortWithWeather(
+            port = port1,
+            summary = summary1,
+            years = emptyList(),
+        )
+
+        useCase(cruiseIds = listOf(1L))
+
+        coVerify(exactly = 1) { fetchWeatherUseCase(any(), any()) }
     }
 
     @Test

@@ -12,7 +12,7 @@ import org.junit.Test
  */
 class MigrationCoverageTest {
 
-    private val currentVersion = 3 // Must match AppDatabase @Database(version = ...)
+    private val currentVersion = 4 // Must match AppDatabase @Database(version = ...)
 
     @Test
     fun `all versions from 1 to current have migrations with no gaps`() {

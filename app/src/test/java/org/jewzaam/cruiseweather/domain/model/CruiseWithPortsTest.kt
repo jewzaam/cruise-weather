@@ -71,4 +71,32 @@ class CruiseWithPortsTest {
         val cwp = CruiseWithPorts(cruise = cruise(id = 1), ports = emptyList())
         assertThat(cwp.allPortsChronological).isEmpty()
     }
+
+    @Test
+    fun `portsOfCall excludes SEA_DAY type`() {
+        val dep = port(id = 1, type = PortType.DEPARTURE, date = LocalDate.of(2026, 12, 14))
+        val sea = port(id = 2, type = PortType.SEA_DAY, portName = "Sea Day", date = LocalDate.of(2026, 12, 15))
+        val poc = port(id = 3, type = PortType.PORT_OF_CALL, portName = "Cozumel", date = LocalDate.of(2026, 12, 16))
+        val ret = port(id = 4, type = PortType.RETURN, date = LocalDate.of(2026, 12, 21))
+        val cwp = CruiseWithPorts(cruise = cruise(id = 1), ports = listOf(dep, sea, poc, ret))
+        assertThat(cwp.portsOfCall).containsExactly(poc)
+    }
+
+    @Test
+    fun `allPortsChronological includes SEA_DAY`() {
+        val dep = port(id = 1, type = PortType.DEPARTURE, date = LocalDate.of(2026, 12, 14), sortOrder = 0)
+        val sea = port(id = 2, type = PortType.SEA_DAY, portName = "Sea Day", date = LocalDate.of(2026, 12, 15), sortOrder = 0)
+        val poc = port(id = 3, type = PortType.PORT_OF_CALL, portName = "Cozumel", date = LocalDate.of(2026, 12, 16), sortOrder = 0)
+        val cwp = CruiseWithPorts(cruise = cruise(id = 1), ports = listOf(dep, sea, poc))
+        val sorted = cwp.allPortsChronological
+        assertThat(sorted).containsExactly(dep, sea, poc).inOrder()
+    }
+
+    @Test
+    fun `SEA_DAY is not departurePort or returnPort`() {
+        val sea = port(id = 1, type = PortType.SEA_DAY, portName = "Sea Day")
+        val cwp = CruiseWithPorts(cruise = cruise(id = 1), ports = listOf(sea))
+        assertThat(cwp.departurePort).isNull()
+        assertThat(cwp.returnPort).isNull()
+    }
 }

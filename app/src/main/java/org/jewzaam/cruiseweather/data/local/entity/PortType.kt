@@ -5,4 +5,5 @@ enum class PortType {
     DEPARTURE,
     PORT_OF_CALL,
     RETURN,
+    SEA_DAY,
 }

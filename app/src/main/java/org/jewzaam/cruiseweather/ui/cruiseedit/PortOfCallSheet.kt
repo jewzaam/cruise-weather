@@ -15,6 +15,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -42,6 +43,7 @@ fun PortOfCallSheet(
     returnDate: LocalDate,
     existingPort: PortOfCall? = null,
     lastPortDate: LocalDate? = null,
+    portType: PortType = PortType.PORT_OF_CALL,
     onSave: (PortOfCall) -> Unit,
     onDelete: ((PortOfCall) -> Unit)? = null,
     onDismiss: () -> Unit,
@@ -49,6 +51,20 @@ fun PortOfCallSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
+    val effectiveType = existingPort?.type ?: portType
+    val isSeaDay = effectiveType == PortType.SEA_DAY
+    val needsLocation = !isSeaDay
+
+    val title = when {
+        existingPort != null -> when (effectiveType) {
+            PortType.DEPARTURE -> "Edit Departure"
+            PortType.RETURN -> "Edit Return"
+            PortType.SEA_DAY -> "Edit Sea Day Note"
+            else -> "Edit Port of Call"
+        }
+        isSeaDay -> "Add Sea Day Note"
+        else -> "Add Port of Call"
+    }
 
     var displayName by remember { mutableStateOf(existingPort?.portName ?: "") }
     var selectedCandidate by remember {
@@ -71,55 +87,74 @@ fun PortOfCallSheet(
         ?: (lastPortDate?.plusDays(1) ?: sailDate.plusDays(1)).coerceAtMost(returnDate)
     var date by remember { mutableStateOf(defaultDate) }
     var dateError by remember { mutableStateOf<String?>(null) }
+    var notes by remember { mutableStateOf(existingPort?.notes ?: "") }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    // For departure/return, date is fixed and location is always required
+    val isDepartureOrReturn = effectiveType == PortType.DEPARTURE || effectiveType == PortType.RETURN
+    val showDateControls = !isDepartureOrReturn
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Text(text = if (existingPort != null) "Edit Port of Call" else "Add Port of Call")
+            Text(text = title)
             Spacer(modifier = Modifier.height(16.dp))
 
-            LocationPicker(
-                label = "Search location",
-                initialDisplayName = existingPort?.portName ?: "",
-                initialCandidate = selectedCandidate,
-                onSelectionChanged = { name, candidate ->
-                    displayName = name
-                    selectedCandidate = candidate
-                },
-                onGeocode = onGeocode,
-                autoFocus = existingPort == null,
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Date display with day-of-cruise indicator
-            val dayOfCruise = ChronoUnit.DAYS.between(sailDate, date) + 1
-            Text("Date: $date  (Day $dayOfCruise)")
-            dateError?.let { Text(text = it) }
-            Row {
-                OutlinedButton(onClick = {
-                    val newDate = date.minusDays(1)
-                    if (newDate >= sailDate) {
-                        date = newDate
-                        dateError = null
-                    } else {
-                        dateError = "Must be within cruise dates"
-                    }
-                }) { Text("\u2212") }
-                Spacer(modifier = Modifier.width(8.dp))
-                OutlinedButton(onClick = {
-                    val newDate = date.plusDays(1)
-                    if (newDate <= returnDate) {
-                        date = newDate
-                        dateError = null
-                    } else {
-                        dateError = "Must be within cruise dates"
-                    }
-                }) { Text("+") }
+            if (needsLocation) {
+                LocationPicker(
+                    label = if (isDepartureOrReturn) "Port" else "Search location",
+                    initialDisplayName = existingPort?.portName ?: "",
+                    initialCandidate = selectedCandidate,
+                    onSelectionChanged = { name, candidate ->
+                        displayName = name
+                        selectedCandidate = candidate
+                    },
+                    onGeocode = onGeocode,
+                    autoFocus = existingPort == null,
+                )
+                Spacer(modifier = Modifier.height(16.dp))
             }
+
+            if (showDateControls) {
+                val dayOfCruise = ChronoUnit.DAYS.between(sailDate, date) + 1
+                Text("Date: $date  (Day $dayOfCruise)")
+                dateError?.let { Text(text = it) }
+                Row {
+                    OutlinedButton(onClick = {
+                        val newDate = date.minusDays(1)
+                        if (newDate >= sailDate) {
+                            date = newDate
+                            dateError = null
+                        } else {
+                            dateError = "Must be within cruise dates"
+                        }
+                    }) { Text("\u2212") }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    OutlinedButton(onClick = {
+                        val newDate = date.plusDays(1)
+                        if (newDate <= returnDate) {
+                            date = newDate
+                            dateError = null
+                        } else {
+                            dateError = "Must be within cruise dates"
+                        }
+                    }) { Text("+") }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            // Notes
+            OutlinedTextField(
+                value = notes,
+                onValueChange = { notes = it },
+                label = { Text("Notes") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 3,
+                maxLines = 6,
+                placeholder = { Text("Excursions, dinner plans, reminders…") },
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -139,20 +174,25 @@ fun PortOfCallSheet(
                 Spacer(modifier = Modifier.width(8.dp))
                 Button(
                     onClick = {
-                        if (displayName.isBlank()) return@Button
                         val resolvedGeoName = selectedCandidate?.displayName
                             ?: existingPort?.resolvedDisplayName
+                        val portName = when {
+                            isSeaDay -> "At Sea"
+                            displayName.isNotBlank() -> displayName.trim()
+                            else -> return@Button
+                        }
                         val saved = (existingPort ?: PortOfCall(
                             cruiseId = cruiseId,
-                            portName = displayName.trim(),
+                            portName = portName,
                             date = date,
-                            type = PortType.PORT_OF_CALL,
+                            type = effectiveType,
                         )).copy(
-                            portName = displayName.trim(),
-                            date = date,
+                            portName = portName,
+                            date = if (isDepartureOrReturn) existingPort!!.date else date,
                             latitude = selectedCandidate?.latitude ?: existingPort?.latitude,
                             longitude = selectedCandidate?.longitude ?: existingPort?.longitude,
-                            resolvedDisplayName = resolvedGeoName,
+                            resolvedDisplayName = if (needsLocation) resolvedGeoName else null,
+                            notes = notes,
                         )
                         onSave(saved)
                         scope.launch {
@@ -161,14 +201,14 @@ fun PortOfCallSheet(
                         }
                     },
                     modifier = Modifier.weight(1f),
-                    enabled = selectedCandidate != null && displayName.isNotBlank(),
+                    enabled = isSeaDay || (selectedCandidate != null && displayName.isNotBlank()),
                 ) {
-                    Text("Save Port")
+                    Text("Save")
                 }
             }
 
-            // Delete button (only when editing an existing port)
-            if (existingPort != null && onDelete != null) {
+            // Delete button (only when editing, not for departure/return)
+            if (existingPort != null && onDelete != null && !isDepartureOrReturn) {
                 Spacer(modifier = Modifier.height(8.dp))
                 TextButton(
                     onClick = { showDeleteConfirm = true },
@@ -177,7 +217,7 @@ fun PortOfCallSheet(
                         contentColor = MaterialTheme.colorScheme.error,
                     ),
                 ) {
-                    Text("Delete Port")
+                    Text("Delete")
                 }
             }
 
@@ -188,7 +228,7 @@ fun PortOfCallSheet(
     if (showDeleteConfirm && existingPort != null && onDelete != null) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Delete Port?") },
+            title = { Text("Delete?") },
             text = { Text("Remove ${existingPort.resolvedDisplayName ?: existingPort.portName} from this cruise?") },
             confirmButton = {
                 TextButton(

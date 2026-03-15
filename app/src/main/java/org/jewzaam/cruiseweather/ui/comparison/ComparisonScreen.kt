@@ -14,7 +14,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -24,7 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.VerticalDivider
+import androidx.compose.foundation.ScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -34,10 +33,12 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.jewzaam.cruiseweather.data.local.entity.Cruise
+import org.jewzaam.cruiseweather.data.local.entity.PortType
 import org.jewzaam.cruiseweather.domain.model.CruiseComparison
 import org.jewzaam.cruiseweather.ui.components.LoadingOverlay
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import java.time.temporal.ChronoUnit
 
 private val DATE_FORMAT = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)
 
@@ -140,6 +141,26 @@ private data class ComparisonRowData(val label: String, val values: List<String>
 @Composable
 private fun ComparisonTable(comparisons: List<CruiseComparison>) {
     val rows = listOf(
+        // Cruise overview
+        ComparisonRowData("Days", comparisons.map {
+            val days = ChronoUnit.DAYS.between(it.cruise.sailDate, it.cruise.returnDate) + 1
+            "$days"
+        }),
+        ComparisonRowData("Departure", comparisons.map { it.cruise.departurePortName }),
+        ComparisonRowData("Return", comparisons.map {
+            it.cruise.returnPortName ?: it.cruise.departurePortName
+        }),
+        ComparisonRowData("Ports of Call", comparisons.map {
+            val count = it.portBreakdowns.count { p -> p.port.type == PortType.PORT_OF_CALL }
+            "$count"
+        }),
+        ComparisonRowData("Sea Days", comparisons.map {
+            val totalDays = ChronoUnit.DAYS.between(it.cruise.sailDate, it.cruise.returnDate) + 1
+            val portDays = it.portBreakdowns.count { p -> p.port.type != PortType.SEA_DAY }
+            val seaDays = totalDays - portDays
+            "$seaDays"
+        }),
+        // Weather
         ComparisonRowData("Avg High", comparisons.map { "${"%.0f".format(it.avgTempHighF)}°F" }),
         ComparisonRowData("Avg Low", comparisons.map { "${"%.0f".format(it.avgTempLowF)}°F" }),
         ComparisonRowData("Rain Chance", comparisons.map { "${"%.0f".format(it.rainProbabilityPct)}%" }),
@@ -157,46 +178,68 @@ private fun ComparisonTable(comparisons: List<CruiseComparison>) {
         }),
     )
 
-    // Pinned label column + horizontally scrollable data columns
-    Row(modifier = Modifier.padding(8.dp)) {
-        // Fixed label column
-        Column {
-            // Empty header cell to align with cruise name headers
-            TableCell(text = "", isHeader = true, width = 120)
-            HorizontalDivider(modifier = Modifier.width(120.dp))
-            rows.forEach { row ->
-                TableCell(text = row.label, isHeader = false, width = 120)
-                HorizontalDivider(modifier = Modifier.width(120.dp))
-            }
-        }
+    // Shared scroll state so all rows scroll in sync
+    val dataScrollState = rememberScrollState()
 
-        VerticalDivider(modifier = Modifier.height(((rows.size + 1) * 34).dp))
-
-        // Scrollable data columns
-        Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
-            comparisons.forEachIndexed { index, c ->
-                Column {
-                    TableCell(text = c.cruise.name, isHeader = true, width = 120)
-                    HorizontalDivider(modifier = Modifier.width(120.dp))
-                    rows.forEach { row ->
-                        TableCell(text = row.values[index], isHeader = false, width = 120)
-                        HorizontalDivider(modifier = Modifier.width(120.dp))
-                    }
-                }
-            }
+    Column(modifier = Modifier.padding(8.dp)) {
+        // Header row
+        ComparisonTableRow(
+            label = "",
+            values = comparisons.map { it.cruise.name },
+            isHeader = true,
+            dataScrollState = dataScrollState,
+        )
+        HorizontalDivider()
+        // Data rows
+        rows.forEach { row ->
+            ComparisonTableRow(
+                label = row.label,
+                values = row.values,
+                isHeader = false,
+                dataScrollState = dataScrollState,
+            )
+            HorizontalDivider()
         }
     }
 }
 
 @Composable
-private fun TableCell(text: String, isHeader: Boolean, width: Int) {
-    Text(
-        text = text,
-        modifier = Modifier
-            .width(width.dp)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        style = if (isHeader) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodySmall,
-        fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal,
-        maxLines = 2,
-    )
+private fun ComparisonTableRow(
+    label: String,
+    values: List<String>,
+    isHeader: Boolean,
+    dataScrollState: ScrollState,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Fixed label
+        Text(
+            text = label,
+            modifier = Modifier
+                .width(100.dp)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        // Scrollable data cells
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .horizontalScroll(dataScrollState),
+        ) {
+            values.forEach { value ->
+                Text(
+                    text = value,
+                    modifier = Modifier
+                        .width(120.dp)
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    style = if (isHeader) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodySmall,
+                    fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal,
+                )
+            }
+        }
+    }
 }

@@ -18,7 +18,7 @@ import org.jewzaam.cruiseweather.data.local.entity.PortWeatherYear
         PortWeatherYear::class,
         PortWeatherSummary::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)

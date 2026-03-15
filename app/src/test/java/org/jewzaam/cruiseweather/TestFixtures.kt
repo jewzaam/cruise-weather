@@ -45,6 +45,7 @@ fun port(
     longitude: Double? = -86.92,
     resolvedDisplayName: String? = null,
     sortOrder: Int = 0,
+    notes: String = "",
 ) = PortOfCall(
     id = id,
     localId = localId,
@@ -56,6 +57,7 @@ fun port(
     longitude = longitude,
     resolvedDisplayName = resolvedDisplayName,
     sortOrder = sortOrder,
+    notes = notes,
 )
 
 fun portWeatherYear(
@@ -106,6 +108,8 @@ fun portWeatherSummary(
     avgHumidityPct: Double = 75.0,
     avgUvIndexMax: Double = 9.0,
     avgSunshineMins: Double = 400.0,
+    avgSunriseMinutes: Double = 390.0,
+    avgSunsetMinutes: Double = 1080.0,
     fetchedAt: Instant = Instant.parse("2026-01-01T00:00:00Z"),
 ) = PortWeatherSummary(
     id = id,
@@ -127,6 +131,8 @@ fun portWeatherSummary(
     avgHumidityPct = avgHumidityPct,
     avgUvIndexMax = avgUvIndexMax,
     avgSunshineMins = avgSunshineMins,
+    avgSunriseMinutes = avgSunriseMinutes,
+    avgSunsetMinutes = avgSunsetMinutes,
     fetchedAt = fetchedAt,
 )
 

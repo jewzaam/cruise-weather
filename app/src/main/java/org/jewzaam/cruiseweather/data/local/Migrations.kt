@@ -37,5 +37,14 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
+/** v3→v4: Add notes column to ports_of_call. */
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE ports_of_call ADD COLUMN notes TEXT NOT NULL DEFAULT ''",
+        )
+    }
+}
+
 /** All migrations — must be registered in DatabaseModule. */
-val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
+val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)

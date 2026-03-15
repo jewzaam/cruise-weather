@@ -41,6 +41,7 @@ import org.jewzaam.cruiseweather.data.local.entity.PortOfCall
 import org.jewzaam.cruiseweather.data.local.entity.PortType
 import org.jewzaam.cruiseweather.ui.components.LoadingOverlay
 import org.jewzaam.cruiseweather.ui.cruiseedit.PortOfCallSheet
+import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.time.temporal.ChronoUnit
@@ -62,7 +63,10 @@ fun CruiseDetailScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var editingPort by remember { mutableStateOf<PortOfCall?>(null) }
-    var addingPortOnDate by remember { mutableStateOf<java.time.LocalDate?>(null) }
+    var addingPortOnDate by remember { mutableStateOf<LocalDate?>(null) }
+    var addingSeaDayOnDate by remember { mutableStateOf<LocalDate?>(null) }
+    // Track which port localId is expanded (null = none)
+    var expandedPortLocalId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(uiState.fetchMessage) {
         uiState.fetchMessage?.let { msg ->
@@ -97,11 +101,12 @@ fun CruiseDetailScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
+        val scrollState = rememberScrollState()
         Column(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(scrollState),
         ) {
             // Action buttons
             Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -115,7 +120,7 @@ fun CruiseDetailScreen(
                 }
             }
 
-            // Day-by-day itinerary with sea day gaps
+            // Day-by-day itinerary
             val cruiseWithPorts = uiState.cruiseWithPorts
             if (cruiseWithPorts != null) {
                 val cruise = cruiseWithPorts.cruise
@@ -128,19 +133,24 @@ fun CruiseDetailScreen(
                     val portsOnDay = portsByDate[date]
                     if (portsOnDay != null) {
                         portsOnDay.forEach { port ->
+                            val isExpanded = expandedPortLocalId == port.localId
                             WeatherCard(
                                 port = port,
                                 summary = uiState.portWeather[port.id],
                                 dayNumber = dayNumber,
-                                modifier = if (port.type == PortType.PORT_OF_CALL) {
-                                    Modifier.clickable { editingPort = port }
-                                } else Modifier,
+                                isExpanded = isExpanded,
+                                onEdit = { editingPort = port },
+                                scrollState = scrollState,
+                                modifier = Modifier.clickable {
+                                    expandedPortLocalId = if (isExpanded) null else port.localId
+                                },
                             )
                         }
                     } else {
                         SeaDayRow(
                             dayNumber = dayNumber,
                             onAddPort = { addingPortOnDate = date },
+                            onAddNote = { addingSeaDayOnDate = date },
                         )
                     }
                 }
@@ -161,6 +171,7 @@ fun CruiseDetailScreen(
         }
     }
 
+    // Edit any port type
     editingPort?.let { port ->
         val cruise = uiState.cruiseWithPorts?.cruise ?: return@let
         PortOfCallSheet(
@@ -168,13 +179,17 @@ fun CruiseDetailScreen(
             sailDate = cruise.sailDate,
             returnDate = cruise.returnDate,
             existingPort = port,
+            portType = port.type,
             onSave = { updated -> viewModel.updatePortOfCall(updated) },
-            onDelete = { deleted -> viewModel.deletePortOfCall(deleted.id) },
+            onDelete = if (port.type == PortType.PORT_OF_CALL || port.type == PortType.SEA_DAY) {
+                { deleted -> viewModel.deletePortOfCall(deleted.id) }
+            } else null,
             onDismiss = { editingPort = null },
             onGeocode = { query -> viewModel.geocodeQuery(query) },
         )
     }
 
+    // Add port of call
     addingPortOnDate?.let { targetDate ->
         val cruise = uiState.cruiseWithPorts?.cruise ?: return@let
         PortOfCallSheet(
@@ -187,10 +202,29 @@ fun CruiseDetailScreen(
             onGeocode = { query -> viewModel.geocodeQuery(query) },
         )
     }
+
+    // Add sea day note
+    addingSeaDayOnDate?.let { targetDate ->
+        val cruise = uiState.cruiseWithPorts?.cruise ?: return@let
+        PortOfCallSheet(
+            cruiseId = cruise.id,
+            sailDate = cruise.sailDate,
+            returnDate = cruise.returnDate,
+            lastPortDate = targetDate.minusDays(1),
+            portType = PortType.SEA_DAY,
+            onSave = { port -> viewModel.addPortOfCall(port.copy(date = targetDate)) },
+            onDismiss = { addingSeaDayOnDate = null },
+            onGeocode = { query -> viewModel.geocodeQuery(query) },
+        )
+    }
 }
 
 @Composable
-private fun SeaDayRow(dayNumber: Int, onAddPort: () -> Unit) {
+private fun SeaDayRow(
+    dayNumber: Int,
+    onAddPort: () -> Unit,
+    onAddNote: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -203,15 +237,16 @@ private fun SeaDayRow(dayNumber: Int, onAddPort: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
-        TextButton(
-            onClick = onAddPort,
-        ) {
+        TextButton(onClick = onAddNote) {
+            Text("Note", style = MaterialTheme.typography.labelSmall)
+        }
+        TextButton(onClick = onAddPort) {
             Icon(
                 imageVector = Icons.Default.Add,
                 contentDescription = "Add port on day $dayNumber",
                 modifier = Modifier.padding(end = 4.dp),
             )
-            Text("Add Port", style = MaterialTheme.typography.labelSmall)
+            Text("Port", style = MaterialTheme.typography.labelSmall)
         }
     }
 }
