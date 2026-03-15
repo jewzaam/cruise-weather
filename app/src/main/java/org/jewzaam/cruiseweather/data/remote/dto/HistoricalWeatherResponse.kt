@@ -26,4 +26,6 @@ data class DailyWeatherData(
     @SerialName("relative_humidity_2m_mean") val humidityPct: List<Double?>,
     @SerialName("uv_index_max") val uvIndexMax: List<Double?>,
     @SerialName("sunshine_duration") val sunshineDurationSec: List<Double?>,
+    val sunrise: List<String?> = emptyList(),
+    val sunset: List<String?> = emptyList(),
 )

@@ -24,6 +24,7 @@ class CompareCruisesUseCaseTest {
 
     private val cruiseRepository = mockk<CruiseRepository>()
     private val weatherRepository = mockk<WeatherRepository>()
+    private val fetchWeatherUseCase = mockk<FetchWeatherForCruiseUseCase>()
     private lateinit var useCase: CompareCruisesUseCase
 
     private val cruise1 = Cruise(
@@ -92,9 +93,11 @@ class CompareCruisesUseCaseTest {
 
     @Before
     fun setUp() {
+        coEvery { fetchWeatherUseCase(any(), any()) } returns emptyList()
         useCase = CompareCruisesUseCase(
             cruiseRepository = cruiseRepository,
             weatherRepository = weatherRepository,
+            fetchWeatherUseCase = fetchWeatherUseCase,
         )
     }
 

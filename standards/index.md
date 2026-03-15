@@ -20,6 +20,7 @@ Project standards for `org.jewzaam.cruiseweather`. These will eventually merge u
 | Project Structure | [project-structure.md](project-structure.md) | Directory layout, required files |
 | Versioning | [versioning.md](versioning.md) | Semantic versioning, what constitutes a breaking change |
 | README Format | [readme-format.md](readme-format.md) | Required README sections and badges |
+| Database Migrations | [database-migrations.md](database-migrations.md) | Room schema changes, data preservation |
 | GitHub Workflows | [github-workflows.md](github-workflows.md) | Required CI checks |
 
 ## Templates

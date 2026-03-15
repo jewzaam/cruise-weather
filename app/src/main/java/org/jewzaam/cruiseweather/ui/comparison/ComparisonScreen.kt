@@ -24,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -88,11 +89,7 @@ fun ComparisonScreen(
                 HorizontalDivider()
                 Spacer(modifier = Modifier.height(8.dp))
 
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                ) {
-                    ComparisonTable(comparisons = uiState.comparisons)
-                }
+                ComparisonTable(comparisons = uiState.comparisons)
             }
 
             uiState.error?.let { error ->
@@ -105,7 +102,7 @@ fun ComparisonScreen(
         }
 
         if (uiState.isLoading) {
-            LoadingOverlay(message = "Computing comparison…")
+            LoadingOverlay(message = "Fetching weather data…")
         }
     }
 }
@@ -138,71 +135,57 @@ private fun CruiseCheckRow(
     }
 }
 
+private data class ComparisonRowData(val label: String, val values: List<String>)
+
 @Composable
 private fun ComparisonTable(comparisons: List<CruiseComparison>) {
-    // Header row + label column
-    Column(modifier = Modifier.padding(8.dp)) {
-        // Column headers
-        Row {
-            TableCell(text = "", isHeader = true, width = 140)
-            comparisons.forEach { c ->
-                TableCell(text = c.cruise.name, isHeader = true, width = 110)
+    val rows = listOf(
+        ComparisonRowData("Avg High", comparisons.map { "${"%.0f".format(it.avgTempHighF)}°F" }),
+        ComparisonRowData("Avg Low", comparisons.map { "${"%.0f".format(it.avgTempLowF)}°F" }),
+        ComparisonRowData("Rain Chance", comparisons.map { "${"%.0f".format(it.rainProbabilityPct)}%" }),
+        ComparisonRowData("Avg Precip", comparisons.map { "${"%.1f".format(it.avgPrecipMm)} mm" }),
+        ComparisonRowData("Avg Wind", comparisons.map { "${"%.0f".format(it.avgWindMaxMph)} mph" }),
+        ComparisonRowData("Avg UV", comparisons.map { "${"%.1f".format(it.avgUvIndexMax)}" }),
+        ComparisonRowData("Avg Humidity", comparisons.map { "${"%.0f".format(it.avgHumidityPct)}%" }),
+        ComparisonRowData("Sunshine hrs", comparisons.map { "${"%.1f".format(it.avgSunshineMins / 60.0)}" }),
+        ComparisonRowData("Avg Sunrise", comparisons.map { it.avgSunriseFormatted }),
+        ComparisonRowData("Avg Sunset", comparisons.map { it.avgSunsetFormatted }),
+        ComparisonRowData("Rainiest Port", comparisons.map { c ->
+            if (c.rainiestPortName != null && c.rainiestPortRainPct != null) {
+                "${c.rainiestPortName} (${"%.0f".format(c.rainiestPortRainPct)}%)"
+            } else "—"
+        }),
+    )
+
+    // Pinned label column + horizontally scrollable data columns
+    Row(modifier = Modifier.padding(8.dp)) {
+        // Fixed label column
+        Column {
+            // Empty header cell to align with cruise name headers
+            TableCell(text = "", isHeader = true, width = 120)
+            HorizontalDivider(modifier = Modifier.width(120.dp))
+            rows.forEach { row ->
+                TableCell(text = row.label, isHeader = false, width = 120)
+                HorizontalDivider(modifier = Modifier.width(120.dp))
             }
         }
-        HorizontalDivider()
 
-        ComparisonRow(
-            label = "Avg High",
-            values = comparisons.map { "${"%.0f".format(it.avgTempHighF)}°F" },
-        )
-        ComparisonRow(
-            label = "Avg Low",
-            values = comparisons.map { "${"%.0f".format(it.avgTempLowF)}°F" },
-        )
-        ComparisonRow(
-            label = "Rain Chance",
-            values = comparisons.map { "${"%.0f".format(it.rainProbabilityPct)}%" },
-        )
-        ComparisonRow(
-            label = "Avg Precip",
-            values = comparisons.map { "${"%.1f".format(it.avgPrecipMm)} mm" },
-        )
-        ComparisonRow(
-            label = "Avg Wind",
-            values = comparisons.map { "${"%.0f".format(it.avgWindMaxMph)} mph" },
-        )
-        ComparisonRow(
-            label = "Avg UV",
-            values = comparisons.map { "${"%.1f".format(it.avgUvIndexMax)}" },
-        )
-        ComparisonRow(
-            label = "Avg Humidity",
-            values = comparisons.map { "${"%.0f".format(it.avgHumidityPct)}%" },
-        )
-        ComparisonRow(
-            label = "Sunshine hrs",
-            values = comparisons.map { "${"%.1f".format(it.avgSunshineMins / 60.0)}" },
-        )
-        ComparisonRow(
-            label = "Rainiest Port",
-            values = comparisons.map { c ->
-                if (c.rainiestPortName != null && c.rainiestPortRainPct != null) {
-                    "${c.rainiestPortName} (${"%.0f".format(c.rainiestPortRainPct)}%)"
-                } else "—"
-            },
-        )
-    }
-}
+        VerticalDivider(modifier = Modifier.height(((rows.size + 1) * 34).dp))
 
-@Composable
-private fun ComparisonRow(label: String, values: List<String>) {
-    Row {
-        TableCell(text = label, isHeader = false, width = 140)
-        values.forEach { value ->
-            TableCell(text = value, isHeader = false, width = 110)
+        // Scrollable data columns
+        Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+            comparisons.forEachIndexed { index, c ->
+                Column {
+                    TableCell(text = c.cruise.name, isHeader = true, width = 120)
+                    HorizontalDivider(modifier = Modifier.width(120.dp))
+                    rows.forEach { row ->
+                        TableCell(text = row.values[index], isHeader = false, width = 120)
+                        HorizontalDivider(modifier = Modifier.width(120.dp))
+                    }
+                }
+            }
         }
     }
-    HorizontalDivider()
 }
 
 @Composable

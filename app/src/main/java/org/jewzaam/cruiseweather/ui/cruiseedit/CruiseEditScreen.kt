@@ -2,15 +2,12 @@
 package org.jewzaam.cruiseweather.ui.cruiseedit
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -18,8 +15,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DateRangePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -33,7 +29,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberDateRangePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,21 +39,31 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.jewzaam.cruiseweather.data.local.entity.PortOfCall
-import org.jewzaam.cruiseweather.ui.components.GeocodingConfirmation
+import org.jewzaam.cruiseweather.ui.components.LocationPicker
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 import java.time.temporal.ChronoUnit
+
+private val DATE_FORMAT = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CruiseEditScreen(
     cruiseId: Long?,
     onNavigateUp: () -> Unit,
+    onCruiseSaved: ((Long) -> Unit)? = null,
     viewModel: CruiseEditViewModel = hiltViewModel(),
 ) {
+    val isNewCruise = cruiseId == null || cruiseId == 0L
+
     LaunchedEffect(cruiseId) {
         if (cruiseId != null && cruiseId != 0L) {
             viewModel.loadCruise(cruiseId)
@@ -68,11 +74,17 @@ fun CruiseEditScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var showPortSheet by remember { mutableStateOf(false) }
     var editingPort by remember { mutableStateOf<PortOfCall?>(null) }
-    var showSailDatePicker by remember { mutableStateOf(false) }
-    var showReturnDatePicker by remember { mutableStateOf(false) }
+    var showDateRangePicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.isSaved) {
-        if (uiState.isSaved) onNavigateUp()
+        if (uiState.isSaved) {
+            val savedId = uiState.savedCruiseId
+            if (isNewCruise && savedId != null && onCruiseSaved != null) {
+                onCruiseSaved(savedId)
+            } else {
+                onNavigateUp()
+            }
+        }
     }
 
     LaunchedEffect(uiState.error) {
@@ -85,7 +97,7 @@ fun CruiseEditScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (cruiseId == null) "New Cruise" else "Edit Cruise") },
+                title = { Text(if (isNewCruise) "New Cruise" else "Edit Cruise") },
                 navigationIcon = {
                     TextButton(onClick = onNavigateUp) {
                         Text("Cancel")
@@ -126,75 +138,34 @@ fun CruiseEditScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Date row
-            Row {
-                OutlinedTextField(
-                    value = uiState.sailDate.toString(),
-                    onValueChange = {},
-                    label = { Text("Sail Date") },
-                    modifier = Modifier.weight(1f),
-                    readOnly = true,
-                    singleLine = true,
-                    interactionSource = remember { MutableInteractionSource() }
-                        .also { interactionSource ->
-                            LaunchedEffect(interactionSource) {
-                                interactionSource.interactions.collect { interaction ->
-                                    if (interaction is PressInteraction.Release) {
-                                        showSailDatePicker = true
-                                    }
-                                }
-                            }
-                        },
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                OutlinedTextField(
-                    value = uiState.returnDate.toString(),
-                    onValueChange = {},
-                    label = { Text("Return Date") },
-                    modifier = Modifier.weight(1f),
-                    readOnly = true,
-                    singleLine = true,
-                    interactionSource = remember { MutableInteractionSource() }
-                        .also { interactionSource ->
-                            LaunchedEffect(interactionSource) {
-                                interactionSource.interactions.collect { interaction ->
-                                    if (interaction is PressInteraction.Release) {
-                                        showReturnDatePicker = true
-                                    }
-                                }
-                            }
-                        },
-                )
+            // Date range display — tap to open range picker
+            val dateLabel = "${DATE_FORMAT.format(uiState.sailDate)} – ${DATE_FORMAT.format(uiState.returnDate)}"
+            val totalDays = ChronoUnit.DAYS.between(uiState.sailDate, uiState.returnDate) + 1
+            OutlinedTextField(
+                value = dateLabel,
+                onValueChange = {},
+                label = { Text("Dates ($totalDays days)") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showDateRangePicker = true },
+                readOnly = true,
+                singleLine = true,
+                enabled = false,
+            )
+            TextButton(onClick = { showDateRangePicker = true }) {
+                Text("Change dates")
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Departure port
-            OutlinedTextField(
-                value = uiState.departurePortName,
-                onValueChange = viewModel::onDeparturePortNameChange,
-                label = { Text("Departure Port") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                trailingIcon = {
-                    if (uiState.isGeocodingDeparture) CircularProgressIndicator()
-                },
+            // Departure port — uses shared LocationPicker
+            LocationPicker(
+                label = "Departure Port",
+                initialDisplayName = uiState.departurePortName,
+                initialCandidate = uiState.selectedDeparture,
+                onSelectionChanged = viewModel::onDepartureChanged,
+                onGeocode = { query -> viewModel.geocodeQuery(query) },
             )
-            if (uiState.departureCandidates.isNotEmpty()) {
-                GeocodingConfirmation(
-                    candidates = uiState.departureCandidates,
-                    selectedId = uiState.selectedDeparture?.id,
-                    onCandidateSelected = viewModel::onDepartureCandidateSelected,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
-            uiState.selectedDeparture?.let {
-                Text(
-                    text = "Location confirmed",
-                    modifier = Modifier.padding(top = 4.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -209,143 +180,163 @@ fun CruiseEditScreen(
 
             if (uiState.hasDifferentReturnPort) {
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = uiState.returnPortName,
-                    onValueChange = viewModel::onReturnPortNameChange,
-                    label = { Text("Return Port") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    trailingIcon = {
-                        if (uiState.isGeocodingReturn) CircularProgressIndicator()
-                    },
+                LocationPicker(
+                    label = "Return Port",
+                    initialDisplayName = uiState.returnPortName,
+                    initialCandidate = uiState.selectedReturn,
+                    onSelectionChanged = viewModel::onReturnChanged,
+                    onGeocode = { query -> viewModel.geocodeQuery(query) },
                 )
-                if (uiState.returnCandidates.isNotEmpty()) {
-                    GeocodingConfirmation(
-                        candidates = uiState.returnCandidates,
-                        selectedId = uiState.selectedReturn?.id,
-                        onCandidateSelected = viewModel::onReturnCandidateSelected,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                }
-                uiState.selectedReturn?.let {
+            }
+
+            // Ports of call section — only shown when editing existing cruise
+            if (!isNewCruise) {
+                Spacer(modifier = Modifier.height(16.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(text = "Ports of Call")
+
+                if (uiState.portsOfCall.isEmpty()) {
                     Text(
-                        text = "Location confirmed",
-                        modifier = Modifier.padding(top = 4.dp),
-                        color = MaterialTheme.colorScheme.primary,
+                        text = "No ports of call yet.",
+                        modifier = Modifier.padding(vertical = 8.dp),
                     )
+                } else {
+                    uiState.portsOfCall.forEach { port ->
+                        val dayOfCruise = ChronoUnit.DAYS.between(uiState.sailDate, port.date) + 1
+                        val displayName = port.portName
+                        val geocodeStatus = if (port.latitude != null) "geocoded" else "not geocoded"
+                        ListItem(
+                            headlineContent = { Text(displayName) },
+                            supportingContent = { Text("Day $dayOfCruise  \u2022  ${port.date}  \u2022  $geocodeStatus") },
+                            trailingContent = {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = "Edit $displayName",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            modifier = Modifier.clickable { editingPort = port },
+                        )
+                        HorizontalDivider()
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = { showPortSheet = true },
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    Text("+ Add Port of Call")
                 }
             }
+        }
+    }
 
-            Spacer(modifier = Modifier.height(16.dp))
-            HorizontalDivider()
-            Spacer(modifier = Modifier.height(8.dp))
+    // Port of call add/edit sheets — only for existing cruises
+    if (!isNewCruise) {
+        if (showPortSheet) {
+            val lastPortDate = uiState.portsOfCall.maxByOrNull { it.date }?.date
+            PortOfCallSheet(
+                cruiseId = uiState.cruiseId,
+                sailDate = uiState.sailDate,
+                returnDate = uiState.returnDate,
+                lastPortDate = lastPortDate,
+                onSave = { port -> viewModel.addPortOfCall(port) },
+                onDismiss = { showPortSheet = false },
+                onGeocode = { query -> viewModel.geocodeQuery(query) },
+            )
+        }
 
-            Text(text = "Ports of Call")
+        editingPort?.let { port ->
+            PortOfCallSheet(
+                cruiseId = uiState.cruiseId,
+                sailDate = uiState.sailDate,
+                returnDate = uiState.returnDate,
+                existingPort = port,
+                onSave = { updated -> viewModel.updatePortOfCall(updated) },
+                onDelete = { deleted -> viewModel.deletePortOfCall(deleted) },
+                onDismiss = { editingPort = null },
+                onGeocode = { query -> viewModel.geocodeQuery(query) },
+            )
+        }
+    }
 
-            if (uiState.portsOfCall.isEmpty()) {
-                Text(
-                    text = "No ports of call yet.",
-                    modifier = Modifier.padding(vertical = 8.dp),
-                )
-            } else {
-                uiState.portsOfCall.forEach { port ->
-                    val dayOfCruise = ChronoUnit.DAYS.between(uiState.sailDate, port.date) + 1
-                    val displayName = port.portName
-                    val geocodeStatus = if (port.latitude != null) "geocoded" else "not geocoded"
-                    ListItem(
-                        headlineContent = { Text(displayName) },
-                        supportingContent = { Text("Day $dayOfCruise  \u2022  ${port.date}  \u2022  $geocodeStatus") },
-                        trailingContent = {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = "Edit $displayName",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        },
-                        modifier = Modifier.clickable { editingPort = port },
+    if (showDateRangePicker) {
+        DateRangePickerDialog(
+            initialSailDate = uiState.sailDate,
+            initialReturnDate = uiState.returnDate,
+            onConfirm = { sail, ret ->
+                viewModel.onDateRangeChange(sail, ret)
+                showDateRangePicker = false
+            },
+            onDismiss = { showDateRangePicker = false },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DateRangePickerDialog(
+    initialSailDate: LocalDate,
+    initialReturnDate: LocalDate,
+    onConfirm: (LocalDate, LocalDate) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val startMillis = initialSailDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+    val endMillis = initialReturnDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+    val dateRangePickerState = rememberDateRangePickerState(
+        initialSelectedStartDateMillis = startMillis,
+        initialSelectedEndDateMillis = endMillis,
+    )
+
+    val hasValidRange = dateRangePickerState.selectedStartDateMillis != null
+        && dateRangePickerState.selectedEndDateMillis != null
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+        ) {
+            DateRangePicker(
+                state = dateRangePickerState,
+                modifier = Modifier.weight(1f),
+                title = {
+                    Text(
+                        text = "Select cruise dates",
+                        modifier = Modifier.padding(start = 24.dp, top = 16.dp),
                     )
-                    HorizontalDivider()
-                }
-            }
-
-            OutlinedButton(
-                onClick = { showPortSheet = true },
-                modifier = Modifier.padding(top = 8.dp),
+                },
+                headline = null,
+                showModeToggle = true,
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp, bottom = 8.dp),
             ) {
-                Text("+ Add Port of Call")
+                Spacer(modifier = Modifier.weight(1f))
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.padding(end = 8.dp),
+                ) {
+                    Text("Cancel", style = MaterialTheme.typography.labelLarge)
+                }
+                Button(
+                    onClick = {
+                        val startMs = dateRangePickerState.selectedStartDateMillis!!
+                        val endMs = dateRangePickerState.selectedEndDateMillis!!
+                        val sail = Instant.ofEpochMilli(startMs).atZone(ZoneOffset.UTC).toLocalDate()
+                        val ret = Instant.ofEpochMilli(endMs).atZone(ZoneOffset.UTC).toLocalDate()
+                        onConfirm(sail, ret)
+                    },
+                    enabled = hasValidRange,
+                ) {
+                    Text("Confirm", style = MaterialTheme.typography.labelLarge)
+                }
             }
-        }
-    }
-
-    if (showPortSheet) {
-        val lastPortDate = uiState.portsOfCall.maxByOrNull { it.date }?.date
-        PortOfCallSheet(
-            cruiseId = uiState.cruiseId,
-            sailDate = uiState.sailDate,
-            returnDate = uiState.returnDate,
-            lastPortDate = lastPortDate,
-            onSave = { port -> viewModel.addPortOfCall(port) },
-            onDismiss = { showPortSheet = false },
-            onGeocode = { query -> viewModel.geocodeQuery(query) },
-        )
-    }
-
-    editingPort?.let { port ->
-        PortOfCallSheet(
-            cruiseId = uiState.cruiseId,
-            sailDate = uiState.sailDate,
-            returnDate = uiState.returnDate,
-            existingPort = port,
-            onSave = { updated -> viewModel.updatePortOfCall(updated) },
-            onDelete = { deleted -> viewModel.deletePortOfCall(deleted) },
-            onDismiss = { editingPort = null },
-            onGeocode = { query -> viewModel.geocodeQuery(query) },
-        )
-    }
-
-    if (showSailDatePicker) {
-        val sailDatePickerState = rememberDatePickerState(
-            initialSelectedDateMillis = uiState.sailDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
-        )
-        DatePickerDialog(
-            onDismissRequest = { showSailDatePicker = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    sailDatePickerState.selectedDateMillis?.let { millis ->
-                        val date = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
-                        viewModel.onSailDateChange(date)
-                    }
-                    showSailDatePicker = false
-                }) { Text("OK") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSailDatePicker = false }) { Text("Cancel") }
-            },
-        ) {
-            DatePicker(state = sailDatePickerState)
-        }
-    }
-
-    if (showReturnDatePicker) {
-        val returnDatePickerState = rememberDatePickerState(
-            initialSelectedDateMillis = uiState.returnDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
-        )
-        DatePickerDialog(
-            onDismissRequest = { showReturnDatePicker = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    returnDatePickerState.selectedDateMillis?.let { millis ->
-                        val date = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
-                        viewModel.onReturnDateChange(date)
-                    }
-                    showReturnDatePicker = false
-                }) { Text("OK") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showReturnDatePicker = false }) { Text("Cancel") }
-            },
-        ) {
-            DatePicker(state = returnDatePickerState)
         }
     }
 }

@@ -11,62 +11,28 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jewzaam.cruiseweather.data.local.entity.PortOfCall
 import org.jewzaam.cruiseweather.data.local.entity.PortType
 import org.jewzaam.cruiseweather.domain.model.GeocodingCandidate
-import org.jewzaam.cruiseweather.ui.components.GeocodingConfirmation
+import org.jewzaam.cruiseweather.ui.components.LocationPicker
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
-import java.util.Locale
-
-/**
- * Title-case a string: capitalize the first letter of each word,
- * preserve any mid-word capitals (e.g. "mcdonald" → "Mcdonald", "McDonald" → "McDonald").
- */
-private fun String.toTitleCase(): String =
-    split(" ").joinToString(" ") { word ->
-        if (word.isEmpty()) word
-        else word[0].uppercaseChar() + word.substring(1)
-    }
-
-/**
- * Returns true if the geocoded display name is substantially different from the search query,
- * meaning the user likely wants a custom display name.
- */
-private fun isNameMismatch(searchQuery: String, geoDisplayName: String): Boolean {
-    // Strip commas and split into significant words (3+ chars)
-    val searchWords = searchQuery.replace(",", " ").lowercase(Locale.ROOT)
-        .split("\\s+".toRegex()).filter { it.length >= 3 }
-    if (searchWords.isEmpty()) return false
-    val geoLower = geoDisplayName.lowercase(Locale.ROOT)
-    val matchCount = searchWords.count { word -> geoLower.contains(word) }
-    // Mismatch if fewer than half the significant search words appear in the geocoded name
-    return matchCount < (searchWords.size + 1) / 2
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,69 +50,28 @@ fun PortOfCallSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
 
-    // Search query — what the user types to find the location
-    var searchQuery by remember { mutableStateOf(existingPort?.portName ?: "") }
-    // Display name — what shows in the UI, editable after geocode selection
     var displayName by remember { mutableStateOf(existingPort?.portName ?: "") }
+    var selectedCandidate by remember {
+        mutableStateOf(
+            existingPort?.let { port ->
+                val lat = port.latitude
+                val lon = port.longitude
+                if (lat != null && lon != null) {
+                    GeocodingCandidate(
+                        id = port.id,
+                        displayName = port.resolvedDisplayName ?: port.portName,
+                        latitude = lat,
+                        longitude = lon,
+                    )
+                } else null
+            },
+        )
+    }
     val defaultDate = existingPort?.date
         ?: (lastPortDate?.plusDays(1) ?: sailDate.plusDays(1)).coerceAtMost(returnDate)
     var date by remember { mutableStateOf(defaultDate) }
-    var candidates by remember { mutableStateOf<List<GeocodingCandidate>>(emptyList()) }
-    var selectedCandidate by remember { mutableStateOf<GeocodingCandidate?>(null) }
-    var isGeocoding by remember { mutableStateOf(false) }
     var dateError by remember { mutableStateOf<String?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
-    // Override is pre-checked when existing port has a custom display name
-    var overrideDisplayName by remember {
-        mutableStateOf(
-            existingPort != null
-                && existingPort.resolvedDisplayName != null
-                && existingPort.portName != existingPort.resolvedDisplayName,
-        )
-    }
-    val focusRequester = remember { FocusRequester() }
-    val hasExistingCoords = existingPort?.latitude != null
-    val isLocationLocked = selectedCandidate != null || hasExistingCoords
-
-    // Auto-focus location field after sheet is composed
-    LaunchedEffect(Unit) {
-        delay(300)
-        try {
-            focusRequester.requestFocus()
-        } catch (_: IllegalStateException) {
-            // FocusRequester not yet attached
-        }
-    }
-
-    // Auto-geocode after user stops typing for 800ms
-    LaunchedEffect(searchQuery) {
-        if (searchQuery.isBlank() || selectedCandidate != null) return@LaunchedEffect
-        // Don't re-geocode when loading an existing port's name
-        if (existingPort != null && searchQuery == existingPort.portName) return@LaunchedEffect
-        delay(800)
-        if (searchQuery.length >= 2) {
-            isGeocoding = true
-            val results = try {
-                onGeocode(searchQuery)
-            } catch (_: Exception) {
-                emptyList()
-            }
-            isGeocoding = false
-            if (results.size == 1) {
-                val candidate = results.first()
-                selectedCandidate = candidate
-                if (isNameMismatch(searchQuery, candidate.displayName)) {
-                    overrideDisplayName = true
-                    displayName = searchQuery.toTitleCase()
-                } else {
-                    displayName = candidate.displayName
-                }
-                candidates = emptyList()
-            } else {
-                candidates = results
-            }
-        }
-    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -156,87 +81,17 @@ fun PortOfCallSheet(
             Text(text = if (existingPort != null) "Edit Port of Call" else "Add Port of Call")
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (!isLocationLocked) {
-                // Search mode — user is typing to find a location
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = {
-                        searchQuery = it
-                        candidates = emptyList()
-                        selectedCandidate = null
-                    },
-                    label = { Text("Search location") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester),
-                    singleLine = true,
-                    trailingIcon = {
-                        if (isGeocoding) CircularProgressIndicator()
-                    },
-                )
-
-                if (candidates.isNotEmpty()) {
-                    GeocodingConfirmation(
-                        candidates = candidates,
-                        selectedId = null,
-                        onCandidateSelected = { candidate ->
-                            selectedCandidate = candidate
-                            if (isNameMismatch(searchQuery, candidate.displayName)) {
-                                overrideDisplayName = true
-                                displayName = searchQuery.toTitleCase()
-                            } else {
-                                displayName = candidate.displayName
-                            }
-                            candidates = emptyList()
-                        },
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                }
-            } else {
-                // Location locked — display name as text or editable field
-                val geoName = selectedCandidate?.displayName
-                    ?: existingPort?.resolvedDisplayName ?: ""
-                if (overrideDisplayName) {
-                    OutlinedTextField(
-                        value = displayName,
-                        onValueChange = { displayName = it },
-                        label = { Text("Display name") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                    )
-                    if (geoName.isNotEmpty()) {
-                        Text(
-                            text = "Based on: $geoName",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                } else {
-                    Text(
-                        text = displayName,
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                }
-                TextButton(
-                    onClick = {
-                        selectedCandidate = null
-                        candidates = emptyList()
-                        searchQuery = ""
-                    },
-                ) {
-                    Text("Change location", style = MaterialTheme.typography.labelSmall)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(
-                        checked = overrideDisplayName,
-                        onCheckedChange = {
-                            overrideDisplayName = it
-                            if (!it) displayName = geoName
-                        },
-                    )
-                    Text("Custom display name", style = MaterialTheme.typography.bodySmall)
-                }
-            }
+            LocationPicker(
+                label = "Search location",
+                initialDisplayName = existingPort?.portName ?: "",
+                initialCandidate = selectedCandidate,
+                onSelectionChanged = { name, candidate ->
+                    displayName = name
+                    selectedCandidate = candidate
+                },
+                onGeocode = onGeocode,
+                autoFocus = existingPort == null,
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -306,7 +161,7 @@ fun PortOfCallSheet(
                         }
                     },
                     modifier = Modifier.weight(1f),
-                    enabled = isLocationLocked && displayName.isNotBlank(),
+                    enabled = selectedCandidate != null && displayName.isNotBlank(),
                 ) {
                     Text("Save Port")
                 }

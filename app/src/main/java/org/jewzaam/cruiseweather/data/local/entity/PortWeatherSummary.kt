@@ -39,9 +39,26 @@ data class PortWeatherSummary(
     val avgHumidityPct: Double,
     val avgUvIndexMax: Double,
     val avgSunshineMins: Double,    // converted from seconds
+    /** Average sunrise as minutes from midnight in local port timezone. */
+    val avgSunriseMinutes: Double = 0.0,
+    /** Average sunset as minutes from midnight in local port timezone. */
+    val avgSunsetMinutes: Double = 0.0,
     val fetchedAt: Instant = Instant.now(),
 ) {
     /** Rain probability as a percentage (0–100), or null if no year data. */
     val rainProbabilityPct: Double?
         get() = if (totalYearCount > 0) rainyYearCount.toDouble() / totalYearCount * 100.0 else null
+
+    /** Format minutes-from-midnight as "H:MM AM/PM". */
+    val sunriseFormatted: String get() = formatMinutesAsTime(avgSunriseMinutes)
+    val sunsetFormatted: String get() = formatMinutesAsTime(avgSunsetMinutes)
+}
+
+private fun formatMinutesAsTime(minutes: Double): String {
+    val totalMins = minutes.toInt()
+    val h = totalMins / 60
+    val m = totalMins % 60
+    val hour12 = if (h == 0) 12 else if (h > 12) h - 12 else h
+    val amPm = if (h < 12) "AM" else "PM"
+    return "%d:%02d %s".format(hour12, m, amPm)
 }

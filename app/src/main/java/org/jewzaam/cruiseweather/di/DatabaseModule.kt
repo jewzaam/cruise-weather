@@ -8,7 +8,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import org.jewzaam.cruiseweather.BuildConfig
+import org.jewzaam.cruiseweather.data.local.ALL_MIGRATIONS
 import org.jewzaam.cruiseweather.data.local.AppDatabase
 import org.jewzaam.cruiseweather.data.local.CruiseDao
 import org.jewzaam.cruiseweather.data.local.PortOfCallDao
@@ -27,11 +27,7 @@ object DatabaseModule {
             klass = AppDatabase::class.java,
             name = "cruise_weather.db",
         )
-            .apply {
-                if (BuildConfig.DEBUG) {
-                    fallbackToDestructiveMigration(dropAllTables = true)
-                }
-            }
+            .addMigrations(*ALL_MIGRATIONS)
             .build()
 
     @Provides

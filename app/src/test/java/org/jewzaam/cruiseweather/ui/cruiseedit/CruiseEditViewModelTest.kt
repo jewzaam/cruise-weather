@@ -10,7 +10,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -19,7 +18,6 @@ import org.jewzaam.cruiseweather.cruise
 import org.jewzaam.cruiseweather.cruiseWithPorts
 import org.jewzaam.cruiseweather.data.local.entity.PortType
 import org.jewzaam.cruiseweather.data.repository.CruiseRepository
-import org.jewzaam.cruiseweather.domain.model.GeocodingCandidate
 import org.jewzaam.cruiseweather.domain.usecase.GeocodePortUseCase
 import org.jewzaam.cruiseweather.geocodingCandidate
 import org.jewzaam.cruiseweather.port
@@ -85,6 +83,16 @@ class CruiseEditViewModelTest {
     }
 
     @Test
+    fun `onDateRangeChange updates both dates`() {
+        val sail = LocalDate.of(2027, 1, 15)
+        val ret = LocalDate.of(2027, 1, 22)
+        viewModel.onDateRangeChange(sail, ret)
+        val state = viewModel.uiState.value
+        assertThat(state.sailDate).isEqualTo(sail)
+        assertThat(state.returnDate).isEqualTo(ret)
+    }
+
+    @Test
     fun `onHasDifferentReturnPortChange clears return port state`() {
         viewModel.onHasDifferentReturnPortChange(true)
         val state = viewModel.uiState.value
@@ -93,145 +101,32 @@ class CruiseEditViewModelTest {
         assertThat(state.selectedReturn).isNull()
     }
 
-    // --- Departure Geocoding ---
+    // --- Departure/Return Selection ---
 
     @Test
-    fun `onDeparturePortNameChange clears candidates and selected`() {
-        viewModel.onDeparturePortNameChange("Mi")
-        val state = viewModel.uiState.value
-        assertThat(state.departurePortName).isEqualTo("Mi")
-        assertThat(state.departureCandidates).isEmpty()
-        assertThat(state.selectedDeparture).isNull()
-    }
-
-    @Test
-    fun `onDeparturePortNameChange triggers geocoding after debounce`() = runTest {
+    fun `onDepartureChanged sets selected and display name`() {
         val candidate = geocodingCandidate()
-        coEvery { geocodePortUseCase(query = "Miami") } returns Result.success(listOf(candidate))
-
-        viewModel.onDeparturePortNameChange("Miami")
-        advanceTimeBy(800)
-        advanceUntilIdle()
-
+        viewModel.onDepartureChanged("Miami, Florida, United States", candidate)
         val state = viewModel.uiState.value
-        // Single result auto-selects
         assertThat(state.selectedDeparture).isEqualTo(candidate)
-        assertThat(state.departurePortName).isEqualTo(candidate.displayName)
+        assertThat(state.departurePortName).isEqualTo("Miami, Florida, United States")
     }
 
     @Test
-    fun `onDeparturePortNameChange cancels previous geocode on rapid typing`() = runTest {
-        coEvery { geocodePortUseCase(query = "Mia") } returns Result.success(
-            listOf(geocodingCandidate(displayName = "Mia result")),
-        )
-        coEvery { geocodePortUseCase(query = "Miami") } returns Result.success(
-            listOf(geocodingCandidate(displayName = "Miami result")),
-        )
-
-        viewModel.onDeparturePortNameChange("Mia")
-        advanceTimeBy(400) // Not yet debounced
-        viewModel.onDeparturePortNameChange("Miami")
-        advanceTimeBy(800)
-        advanceUntilIdle()
-
-        // Only "Miami" should have been geocoded (auto-selected since single result)
-        assertThat(viewModel.uiState.value.departurePortName).isEqualTo("Miami result")
-    }
-
-    @Test
-    fun `departure geocoding auto-selects single candidate via debounce`() = runTest {
-        val candidate = geocodingCandidate()
-        coEvery { geocodePortUseCase(query = "Miami") } returns Result.success(listOf(candidate))
-
-        viewModel.onDeparturePortNameChange("Miami")
-        advanceTimeBy(800)
-        advanceUntilIdle()
-
-        assertThat(viewModel.uiState.value.selectedDeparture).isEqualTo(candidate)
-    }
-
-    @Test
-    fun `departure geocoding shows multiple candidates without auto-selecting`() = runTest {
-        val candidates = listOf(
-            geocodingCandidate(id = 1, displayName = "Miami, FL, US"),
-            geocodingCandidate(id = 2, displayName = "Miami Beach, FL, US"),
-        )
-        coEvery { geocodePortUseCase(query = "Miami") } returns Result.success(candidates)
-
-        viewModel.onDeparturePortNameChange("Miami")
-        advanceTimeBy(800)
-        advanceUntilIdle()
-
+    fun `onDepartureChanged clears selection when candidate is null`() {
+        viewModel.onDepartureChanged("Mia", null)
         val state = viewModel.uiState.value
-        assertThat(state.departureCandidates).hasSize(2)
         assertThat(state.selectedDeparture).isNull()
+        assertThat(state.departurePortName).isEqualTo("Mia")
     }
 
     @Test
-    fun `departure geocoding sets error on failure`() = runTest {
-        coEvery { geocodePortUseCase(query = "fail") } returns Result.failure(RuntimeException("Network error"))
-
-        viewModel.onDeparturePortNameChange("fail")
-        advanceTimeBy(800)
-        advanceUntilIdle()
-
-        assertThat(viewModel.uiState.value.error).isEqualTo("Network error")
-    }
-
-    @Test
-    fun `departure geocoding skipped when port name is blank`() = runTest {
-        viewModel.onDeparturePortNameChange("")
-        advanceTimeBy(800)
-        advanceUntilIdle()
-
-        assertThat(viewModel.uiState.value.isGeocodingDeparture).isFalse()
-    }
-
-    // --- Return Port Geocoding ---
-
-    @Test
-    fun `onReturnPortNameChange triggers geocoding after debounce`() = runTest {
+    fun `onReturnChanged sets selected and display name`() {
         val candidate = geocodingCandidate(displayName = "Barcelona, Spain")
-        coEvery { geocodePortUseCase(query = "Barcelona") } returns Result.success(listOf(candidate))
-
-        viewModel.onReturnPortNameChange("Barcelona")
-        advanceTimeBy(800)
-        advanceUntilIdle()
-
-        assertThat(viewModel.uiState.value.selectedReturn).isEqualTo(candidate)
-    }
-
-    @Test
-    fun `return geocoding sets error on failure`() = runTest {
-        coEvery { geocodePortUseCase(query = "fail") } returns Result.failure(RuntimeException("error"))
-
-        viewModel.onReturnPortNameChange("fail")
-        advanceTimeBy(800)
-        advanceUntilIdle()
-
-        assertThat(viewModel.uiState.value.error).isEqualTo("error")
-    }
-
-    // --- Candidate Selection ---
-
-    @Test
-    fun `onDepartureCandidateSelected sets selected and clears candidates`() {
-        val candidate = geocodingCandidate()
-        viewModel.onDepartureCandidateSelected(candidate)
-        val state = viewModel.uiState.value
-        assertThat(state.selectedDeparture).isEqualTo(candidate)
-        assertThat(state.departureCandidates).isEmpty()
-        assertThat(state.departurePortName).isEqualTo(candidate.displayName)
-    }
-
-    @Test
-    fun `onReturnCandidateSelected sets selected and clears candidates`() {
-        val candidate = geocodingCandidate(displayName = "Barcelona")
-        viewModel.onReturnCandidateSelected(candidate)
+        viewModel.onReturnChanged("Barcelona, Spain", candidate)
         val state = viewModel.uiState.value
         assertThat(state.selectedReturn).isEqualTo(candidate)
-        assertThat(state.returnCandidates).isEmpty()
-        assertThat(state.returnPortName).isEqualTo("Barcelona")
+        assertThat(state.returnPortName).isEqualTo("Barcelona, Spain")
     }
 
     // --- Validation ---
@@ -239,7 +134,7 @@ class CruiseEditViewModelTest {
     @Test
     fun `saveCruise rejects blank name`() = runTest {
         viewModel.onNameChange("   ")
-        viewModel.onDepartureCandidateSelected(geocodingCandidate())
+        viewModel.onDepartureChanged("Miami", geocodingCandidate())
         viewModel.saveCruise()
         advanceUntilIdle()
 
@@ -259,7 +154,7 @@ class CruiseEditViewModelTest {
     @Test
     fun `saveCruise rejects return date before sail date`() = runTest {
         viewModel.onNameChange("Test")
-        viewModel.onDepartureCandidateSelected(geocodingCandidate())
+        viewModel.onDepartureChanged("Miami", geocodingCandidate())
         viewModel.onSailDateChange(LocalDate.of(2027, 1, 20))
         viewModel.onReturnDateChange(LocalDate.of(2027, 1, 15))
         viewModel.saveCruise()
@@ -275,13 +170,14 @@ class CruiseEditViewModelTest {
         coEvery { cruiseRepository.saveCruise(any(), any(), any(), any()) } returns 5L
 
         viewModel.onNameChange("Caribbean")
-        viewModel.onDepartureCandidateSelected(geocodingCandidate())
+        viewModel.onDepartureChanged("Miami", geocodingCandidate())
         viewModel.onSailDateChange(LocalDate.of(2026, 12, 14))
         viewModel.onReturnDateChange(LocalDate.of(2026, 12, 21))
         viewModel.saveCruise()
         advanceUntilIdle()
 
         assertThat(viewModel.uiState.value.isSaved).isTrue()
+        assertThat(viewModel.uiState.value.savedCruiseId).isEqualTo(5L)
         coVerify {
             cruiseRepository.saveCruise(
                 match { it.name == "Caribbean" && it.returnPortName == null },
@@ -298,9 +194,9 @@ class CruiseEditViewModelTest {
         coEvery { cruiseRepository.saveCruise(any(), any(), any(), any()) } returns 5L
 
         viewModel.onNameChange("Caribbean")
-        viewModel.onDepartureCandidateSelected(geocodingCandidate())
+        viewModel.onDepartureChanged("Miami", geocodingCandidate())
         viewModel.onHasDifferentReturnPortChange(true)
-        viewModel.onReturnCandidateSelected(returnCandidate)
+        viewModel.onReturnChanged("Fort Lauderdale", returnCandidate)
         viewModel.saveCruise()
         advanceUntilIdle()
 
@@ -319,7 +215,7 @@ class CruiseEditViewModelTest {
         coEvery { cruiseRepository.saveCruise(any(), any(), any(), any()) } throws RuntimeException("DB error")
 
         viewModel.onNameChange("Test")
-        viewModel.onDepartureCandidateSelected(geocodingCandidate())
+        viewModel.onDepartureChanged("Miami", geocodingCandidate())
         viewModel.saveCruise()
         advanceUntilIdle()
 

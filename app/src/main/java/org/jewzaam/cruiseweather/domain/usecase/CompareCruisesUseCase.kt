@@ -5,17 +5,22 @@ import kotlinx.coroutines.flow.first
 import org.jewzaam.cruiseweather.data.repository.CruiseRepository
 import org.jewzaam.cruiseweather.data.repository.WeatherRepository
 import org.jewzaam.cruiseweather.domain.model.CruiseComparison
+import org.jewzaam.cruiseweather.domain.model.CruiseWithPorts
 import org.jewzaam.cruiseweather.domain.model.PortWithWeather
 import javax.inject.Inject
 
 class CompareCruisesUseCase @Inject constructor(
     private val cruiseRepository: CruiseRepository,
     private val weatherRepository: WeatherRepository,
+    private val fetchWeatherUseCase: FetchWeatherForCruiseUseCase,
 ) {
     suspend operator fun invoke(cruiseIds: List<Long>): List<CruiseComparison> =
         cruiseIds.mapNotNull { cruiseId ->
             val cruiseWithPorts = cruiseRepository.getCruiseWithPorts(cruiseId).first()
                 ?: return@mapNotNull null
+
+            // Fetch any missing or stale weather data before comparing
+            fetchWeatherUseCase(cruiseWithPorts = cruiseWithPorts)
 
             val portWithWeatherList = cruiseWithPorts.ports.map { port ->
                 weatherRepository.getPortWithWeather(port.id)
@@ -42,6 +47,8 @@ class CompareCruisesUseCase @Inject constructor(
                 avgUvIndexMax = summaries.map { it.avgUvIndexMax }.average(),
                 avgHumidityPct = summaries.map { it.avgHumidityPct }.average(),
                 avgSunshineMins = summaries.map { it.avgSunshineMins }.average(),
+                avgSunriseMinutes = summaries.map { it.avgSunriseMinutes }.average(),
+                avgSunsetMinutes = summaries.map { it.avgSunsetMinutes }.average(),
                 rainiestPortName = rainiestPort?.port?.portName,
                 rainiestPortRainPct = rainiestPort?.summary?.rainProbabilityPct,
                 portBreakdowns = portWithWeatherList,

@@ -17,7 +17,9 @@ import timber.log.Timber
 import java.time.Instant
 import java.time.DateTimeException
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -54,8 +56,9 @@ class WeatherRepository @Inject constructor(
     }
 
     suspend fun isFetchNeeded(portId: Long): Boolean {
-        // Historical weather doesn't change — only fetch if no data exists
-        return weatherDao.getSummaryForPortOnce(portId) == null
+        val summary = weatherDao.getSummaryForPortOnce(portId) ?: return true
+        // Stale if missing sunrise/sunset data (added in schema v3)
+        return summary.avgSunriseMinutes == 0.0
     }
 
     suspend fun fetchWeatherForPort(port: PortOfCall): WeatherFetchResult {
@@ -162,8 +165,19 @@ class WeatherRepository @Inject constructor(
             humidityPct = daily.humidityPct.filterNotNull().averageOrZero(),
             uvIndexMax = daily.uvIndexMax.filterNotNull().averageOrZero(),
             sunshineDurationSec = daily.sunshineDurationSec.filterNotNull().averageOrZero(),
+            sunriseMinutes = daily.sunrise.mapNotNull { it?.toMinutesFromMidnight() }.averageOrZero(),
+            sunsetMinutes = daily.sunset.mapNotNull { it?.toMinutesFromMidnight() }.averageOrZero(),
         )
     }
+
+    /** Parse ISO datetime string (e.g. "2025-12-16T06:45") to minutes from midnight. */
+    private fun String.toMinutesFromMidnight(): Double? =
+        try {
+            val dt = LocalDateTime.parse(this)
+            (dt.hour * 60 + dt.minute).toDouble()
+        } catch (_: DateTimeParseException) {
+            null
+        }
 
     private fun List<Double>.averageOrZero(): Double = if (isEmpty()) 0.0 else average()
 
@@ -188,6 +202,8 @@ class WeatherRepository @Inject constructor(
             avgHumidityPct = years.map { it.humidityPct }.average(),
             avgUvIndexMax = years.map { it.uvIndexMax }.average(),
             avgSunshineMins = years.map { it.sunshineDurationSec / 60.0 }.average(),
+            avgSunriseMinutes = years.map { it.sunriseMinutes }.average(),
+            avgSunsetMinutes = years.map { it.sunsetMinutes }.average(),
             fetchedAt = Instant.now(),
         )
     }

@@ -331,6 +331,8 @@ class WeatherRepositoryTest {
         avgHumidityPct = 75.0,
         avgUvIndexMax = 9.0,
         avgSunshineMins = 400.0,
+        avgSunriseMinutes = 390.0,
+        avgSunsetMinutes = 1080.0,
         fetchedAt = fetchedAt,
     )
 }

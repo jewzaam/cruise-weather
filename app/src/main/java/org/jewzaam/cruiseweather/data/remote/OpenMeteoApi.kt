@@ -17,7 +17,8 @@ private const val ARCHIVE_BASE = "https://archive-api.open-meteo.com/v1"
 private const val DAILY_VARIABLES =
     "temperature_2m_max,temperature_2m_min,precipitation_sum," +
         "precipitation_hours,wind_speed_10m_max,wind_gusts_10m_max," +
-        "relative_humidity_2m_mean,uv_index_max,sunshine_duration"
+        "relative_humidity_2m_mean,uv_index_max,sunshine_duration," +
+        "sunrise,sunset"
 
 @Singleton
 class OpenMeteoApi @Inject constructor(private val client: HttpClient) {

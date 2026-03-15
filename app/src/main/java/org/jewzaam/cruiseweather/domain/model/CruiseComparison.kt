@@ -13,7 +13,22 @@ data class CruiseComparison(
     val avgUvIndexMax: Double,
     val avgHumidityPct: Double,
     val avgSunshineMins: Double,
+    val avgSunriseMinutes: Double = 0.0,
+    val avgSunsetMinutes: Double = 0.0,
     val rainiestPortName: String?,
     val rainiestPortRainPct: Double?,
     val portBreakdowns: List<PortWithWeather>,
-)
+) {
+    val avgSunriseFormatted: String get() = formatMinutesAsTime(avgSunriseMinutes)
+    val avgSunsetFormatted: String get() = formatMinutesAsTime(avgSunsetMinutes)
+}
+
+private fun formatMinutesAsTime(minutes: Double): String {
+    if (minutes <= 0.0) return "—"
+    val totalMins = minutes.toInt()
+    val h = totalMins / 60
+    val m = totalMins % 60
+    val hour12 = if (h == 0) 12 else if (h > 12) h - 12 else h
+    val amPm = if (h < 12) "AM" else "PM"
+    return "%d:%02d %s".format(hour12, m, amPm)
+}

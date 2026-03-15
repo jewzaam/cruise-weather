@@ -31,4 +31,8 @@ data class PortWeatherYear(
     val humidityPct: Double,
     val uvIndexMax: Double,
     val sunshineDurationSec: Double,
+    /** Average sunrise time as minutes from midnight (local port timezone). */
+    val sunriseMinutes: Double = 0.0,
+    /** Average sunset time as minutes from midnight (local port timezone). */
+    val sunsetMinutes: Double = 0.0,
 )

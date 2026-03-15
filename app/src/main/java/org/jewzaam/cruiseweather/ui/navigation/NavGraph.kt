@@ -33,6 +33,12 @@ fun NavGraph() {
             CruiseEditScreen(
                 cruiseId = null,
                 onNavigateUp = { navController.navigateUp() },
+                onCruiseSaved = { savedId ->
+                    navController.navigate("$CRUISE_DETAIL/$savedId") {
+                        // Pop the edit screen off the back stack so "back" goes to the list
+                        popUpTo(CRUISE_LIST)
+                    }
+                },
             )
         }
         composable(

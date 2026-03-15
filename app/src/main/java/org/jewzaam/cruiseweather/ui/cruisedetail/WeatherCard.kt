@@ -4,11 +4,8 @@ package org.jewzaam.cruiseweather.ui.cruisedetail
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -23,7 +20,10 @@ import org.jewzaam.cruiseweather.data.local.entity.PortType
 import org.jewzaam.cruiseweather.data.local.entity.PortWeatherSummary
 import org.jewzaam.cruiseweather.ui.components.deriveWeatherCondition
 import org.jewzaam.cruiseweather.ui.components.toEmoji
+import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
+import kotlin.math.roundToInt
 
 private val DAY_FORMAT = DateTimeFormatter.ofPattern("MMM d")
 
@@ -82,14 +82,16 @@ fun WeatherCard(
                 )
             }
 
-            // Right: weather summary
+            // Right: 3-row weather summary
             if (summary != null) {
                 Column(horizontalAlignment = Alignment.End) {
+                    // Row 1: temp high/low
                     Text(
                         text = "${condition.toEmoji()} ${"%.0f".format(summary.avgTempHighF)}°/${"%.0f".format(summary.avgTempLowF)}°F",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
+                    // Row 2: rain %, humidity %
                     val rainPct = (summary.rainProbabilityPct ?: 0.0).toInt()
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
@@ -97,19 +99,23 @@ fun WeatherCard(
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
-                            text = "Wind ${"%.0f".format(summary.avgWindMaxMph)}mph",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(
-                            text = "UV ${"%.1f".format(summary.avgUvIndexMax)}",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Text(
                             text = "Hum ${"%.0f".format(summary.avgHumidityPct)}%",
                             style = MaterialTheme.typography.bodySmall,
                         )
+                    }
+                    // Row 3: sunrise/sunset + moon phase
+                    val moonEmoji = port?.date?.let { moonPhaseEmoji(it) } ?: ""
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "\u2600${summary.sunriseFormatted}  \u263E${summary.sunsetFormatted}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        if (moonEmoji.isNotEmpty()) {
+                            Text(
+                                text = moonEmoji,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                     }
                 }
             } else {
@@ -120,5 +126,29 @@ fun WeatherCard(
                 )
             }
         }
+    }
+}
+
+/**
+ * Approximate moon phase emoji for a given date.
+ * Uses the synodic month (~29.53 days) from a known new moon reference.
+ */
+private fun moonPhaseEmoji(date: LocalDate): String {
+    // Reference new moon: January 6, 2000
+    val referenceNewMoon = LocalDate.of(2000, 1, 6)
+    val daysSinceRef = ChronoUnit.DAYS.between(referenceNewMoon, date).toDouble()
+    val synodicMonth = 29.53058867
+    val phase = ((daysSinceRef % synodicMonth) + synodicMonth) % synodicMonth
+    val phaseIndex = ((phase / synodicMonth) * 8).roundToInt() % 8
+    return when (phaseIndex) {
+        0 -> "\uD83C\uDF11" // 🌑 New
+        1 -> "\uD83C\uDF12" // 🌒 Waxing crescent
+        2 -> "\uD83C\uDF13" // 🌓 First quarter
+        3 -> "\uD83C\uDF14" // 🌔 Waxing gibbous
+        4 -> "\uD83C\uDF15" // 🌕 Full
+        5 -> "\uD83C\uDF16" // 🌖 Waning gibbous
+        6 -> "\uD83C\uDF17" // 🌗 Last quarter
+        7 -> "\uD83C\uDF18" // 🌘 Waning crescent
+        else -> ""
     }
 }

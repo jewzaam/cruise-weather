@@ -9,9 +9,8 @@ import org.jewzaam.cruiseweather.data.local.entity.PortOfCall
 import org.jewzaam.cruiseweather.data.local.entity.PortWeatherSummary
 import org.jewzaam.cruiseweather.data.local.entity.PortWeatherYear
 
-// Schema version 1 — Phase 1 initial schema.
-// fallbackToDestructiveMigration() is used during pre-release development.
-// Switch to explicit Migration objects before any production release.
+// All schema changes require a Migration in Migrations.kt.
+// Never use fallbackToDestructiveMigration — user data must be preserved.
 @Database(
     entities = [
         Cruise::class,
@@ -19,7 +18,7 @@ import org.jewzaam.cruiseweather.data.local.entity.PortWeatherYear
         PortWeatherYear::class,
         PortWeatherSummary::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
