@@ -147,6 +147,60 @@ Instrumented tests (`src/androidTest/`) require a connected device or running em
 ./gradlew connectedAndroidTest
 ```
 
+## Step 8 — Firebase Setup (optional, for release builds)
+
+Firebase App Distribution and Crashlytics are used for beta distribution and crash reporting. Skip this step if you only need debug builds.
+
+### 8a — Create Firebase project
+
+1. Go to the [Firebase Console](https://console.firebase.google.com/).
+2. Create a project named `cruise-weather`.
+3. Add an Android app with package name `org.jewzaam.cruiseweather`.
+4. Enable **App Distribution** and **Crashlytics** in the Firebase Console.
+5. Download `google-services.json` and place it in `app/`.
+
+> `app/google-services.json` is git-ignored and must not be committed.
+
+### 8b — Generate a release signing key
+
+```bash
+keytool -genkey -v -keystore cruise-weather-release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias cruise-weather
+```
+
+Store the `.jks` file somewhere safe outside the repository.
+
+### 8c — Create `keystore.properties`
+
+Create `keystore.properties` in the project root:
+
+```properties
+storeFile=../path/to/cruise-weather-release.jks
+storePassword=your_store_password
+keyAlias=cruise-weather
+keyPassword=your_key_password
+```
+
+> `keystore.properties` is git-ignored and must not be committed.
+
+### 8d — Install Firebase CLI
+
+1. Install the Firebase CLI: [firebase.google.com/docs/cli](https://firebase.google.com/docs/cli)
+2. Authenticate:
+
+```bash
+firebase login
+```
+
+### 8e — Build and distribute
+
+| Task | Command |
+|---|---|
+| Signed release APK | `make release` |
+| Signed release bundle (AAB) | `make release-bundle` |
+| Build + upload to Firebase App Distribution | `make distribute` |
+
+The release APK is output to `app/build/outputs/apk/release/`.
+
 ## Troubleshooting
 
 ### `SDK location not found`

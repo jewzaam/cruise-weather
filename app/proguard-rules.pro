@@ -11,5 +11,11 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
+# Preserve source file names and line numbers for Crashlytics
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
+
 # Ktor
 -keep class io.ktor.** { *; }
+-dontwarn java.lang.management.ManagementFactory
+-dontwarn java.lang.management.RuntimeMXBean

@@ -2,6 +2,7 @@
 package org.jewzaam.cruiseweather
 
 import android.app.Application
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import dagger.hilt.android.HiltAndroidApp
 import timber.log.Timber
 
@@ -9,8 +10,22 @@ import timber.log.Timber
 class CruiseWeatherApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        FirebaseCrashlytics.getInstance().isCrashlyticsCollectionEnabled = !BuildConfig.DEBUG
         if (BuildConfig.DEBUG) {
             Timber.plant(Timber.DebugTree())
+        } else {
+            Timber.plant(CrashlyticsTree())
+        }
+    }
+}
+
+private class CrashlyticsTree : Timber.Tree() {
+    override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+        if (priority < android.util.Log.WARN) return
+        val crashlytics = FirebaseCrashlytics.getInstance()
+        crashlytics.log("${tag ?: "NO_TAG"}: $message")
+        if (t != null) {
+            crashlytics.recordException(t)
         }
     }
 }

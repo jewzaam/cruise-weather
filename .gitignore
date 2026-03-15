@@ -26,8 +26,17 @@ build/
 # Kotlin
 *.kotlin_module
 
+# Firebase
+app/google-services.json
+
+# Signing
+keystore.properties
+
 # Claude Code
 .claude/
+
+# JVM heap dumps
+*.hprof
 
 # OS files
 Thumbs.db

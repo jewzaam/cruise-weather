@@ -1,7 +1,7 @@
 # Convenience wrapper around Gradle targets.
 # Gradle is authoritative; this Makefile just saves typing.
 
-.PHONY: build test lint check clean itest setup-check itest setup-check
+.PHONY: build test lint check clean itest setup-check release release-bundle distribute
 
 build:
 	./gradlew build
@@ -16,6 +16,17 @@ check: lint test
 
 clean:
 	./gradlew clean
+
+# Release builds
+release:
+	./gradlew assembleRelease
+
+release-bundle:
+	./gradlew bundleRelease
+
+# Upload to Firebase App Distribution
+distribute:
+	./gradlew assembleRelease appDistributionUploadRelease
 
 # Instrumented tests — requires connected device or emulator
 itest:
