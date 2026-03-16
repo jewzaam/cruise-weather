@@ -133,21 +133,16 @@ class CruiseDetailViewModelTest {
     }
 
     @Test
-    fun `auto-fetch only runs once even on re-emission`() = runTest {
+    fun `auto-fetch does not re-fetch when data is fresh`() = runTest {
         val cwp = cruiseWithPorts()
         every { cruiseRepository.getCruiseWithPorts(1L) } returns flowOf(cwp)
         coEvery { weatherRepository.getPortWithWeather(any()) } returns null
-        coEvery { weatherRepository.isFetchNeeded(any()) } returns true
-        coEvery { fetchWeatherUseCase(any(), any()) } returns emptyList()
+        coEvery { weatherRepository.isFetchNeeded(any()) } returns false
 
         viewModel.loadCruise(1L)
         advanceUntilIdle()
 
-        // Second load should not auto-fetch again
-        viewModel.loadCruise(1L)
-        advanceUntilIdle()
-
-        coVerify(exactly = 1) { fetchWeatherUseCase(any(), any()) }
+        coVerify(exactly = 0) { fetchWeatherUseCase(any(), any()) }
     }
 
     // --- Fetch Weather ---
@@ -344,6 +339,40 @@ class CruiseDetailViewModelTest {
         advanceUntilIdle()
 
         assertThat(viewModel.uiState.value.error).isEqualTo("Delete failed")
+    }
+
+    // --- Orphan SEA_DAY Cleanup ---
+
+    @Test
+    fun `addPortOfCall deletes orphan SEA_DAY on same date and transfers notes`() = runTest {
+        val seaDay = port(id = 20, cruiseId = 1, portName = "At Sea", date = LocalDate.of(2026, 12, 16),
+            type = PortType.SEA_DAY, latitude = null, longitude = null, notes = "Rest day")
+        val cwp = cruiseWithPorts(
+            ports = listOf(
+                port(id = 10, cruiseId = 1, portName = "Miami", type = PortType.DEPARTURE, date = LocalDate.of(2026, 12, 14)),
+                seaDay,
+                port(id = 12, cruiseId = 1, portName = "Miami", type = PortType.RETURN, date = LocalDate.of(2026, 12, 21), sortOrder = Int.MAX_VALUE),
+            ),
+        )
+        every { cruiseRepository.getCruiseWithPorts(1L) } returns flowOf(cwp)
+        coEvery { weatherRepository.getPortWithWeather(any()) } returns null
+        coEvery { weatherRepository.isFetchNeeded(any()) } returns false
+        coEvery { cruiseRepository.addPortOfCall(any()) } returns 30L
+        coEvery { cruiseRepository.deletePortOfCall(20L) } returns Unit
+        coEvery { weatherRepository.fetchWeatherForPort(any()) } returns WeatherFetchResult.Success
+
+        viewModel.loadCruise(1L)
+        advanceUntilIdle()
+
+        val newPort = port(id = 0, cruiseId = 1, portName = "Cozumel", date = LocalDate.of(2026, 12, 16),
+            type = PortType.PORT_OF_CALL)
+        viewModel.addPortOfCall(newPort)
+        advanceUntilIdle()
+
+        // Verify the orphan SEA_DAY was deleted
+        coVerify { cruiseRepository.deletePortOfCall(20L) }
+        // Verify the new port was saved with the sea day's notes
+        coVerify { cruiseRepository.addPortOfCall(match { it.notes == "Rest day" && it.portName == "Cozumel" }) }
     }
 
     // --- Utility ---

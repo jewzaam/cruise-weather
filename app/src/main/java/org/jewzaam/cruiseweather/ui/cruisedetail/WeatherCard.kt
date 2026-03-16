@@ -94,8 +94,8 @@ fun WeatherCard(
                 Column(modifier = Modifier.weight(1f)) {
                     val typeLabel = port?.let {
                         when (it.type) {
-                            PortType.DEPARTURE -> "Departure"
-                            PortType.RETURN -> "Return"
+                            PortType.DEPARTURE -> "Embark"
+                            PortType.RETURN -> "Debark"
                             PortType.SEA_DAY -> "At Sea"
                             else -> null
                         }

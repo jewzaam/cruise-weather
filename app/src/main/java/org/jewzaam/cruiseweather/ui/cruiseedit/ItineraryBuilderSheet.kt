@@ -28,6 +28,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +36,8 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -58,18 +61,18 @@ fun ItineraryBuilderSheet(
     onDone: (List<ItinerarySlot>) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    // All slots including Day 1 (departure) and last (return).
-    // Day 1 is editable. Last slot is the return day.
+    // All slots including embark (first) and debark (last).
+    var focusSlotIndex by remember { mutableIntStateOf(-1) }
     val slots = remember {
         mutableStateListOf<ItinerarySlot>().apply {
             if (existingSlots != null && existingSlots.isNotEmpty()) {
                 addAll(existingSlots)
             } else {
-                // Day 1 (departure), 2 intermediate, Return
+                // Embark, 2 intermediate, Debark
                 add(ItinerarySlot(dayNumber = 1, date = sailDate, portQuery = departurePortName))
                 add(ItinerarySlot(dayNumber = 2, date = sailDate.plusDays(1)))
                 add(ItinerarySlot(dayNumber = 3, date = sailDate.plusDays(2)))
-                add(ItinerarySlot(dayNumber = 4, date = sailDate.plusDays(3))) // Return
+                add(ItinerarySlot(dayNumber = 4, date = sailDate.plusDays(3)))
             }
         }
     }
@@ -118,13 +121,13 @@ fun ItineraryBuilderSheet(
                         val isFirst = index == 0
                         val isLast = index == slots.size - 1
                         val label = when {
-                            isFirst -> "Day 1"
-                            isLast -> "Return"
+                            isFirst -> "Embark"
+                            isLast -> "Debark"
                             else -> "Day ${slot.dayNumber}"
                         }
                         val placeholder = when {
-                            isFirst -> "Departure port"
-                            isLast -> "Same as departure"
+                            isFirst -> "Embark port"
+                            isLast -> "Same as embark"
                             else -> "Sea day"
                         }
 
@@ -133,25 +136,28 @@ fun ItineraryBuilderSheet(
                             label = label,
                             placeholder = placeholder,
                             canRemove = !isFirst && !isLast && slots.size > 3,
+                            autoFocus = index == focusSlotIndex,
                             onSearchPorts = onSearchPorts,
                             onSlotUpdated = { updated -> slots[index] = updated },
                             onRemove = {
                                 slots.removeAt(index)
                                 renumberSlots()
                             },
+                            onFocused = { focusSlotIndex = -1 },
                         )
 
-                        // "+ Add Day" button between the last intermediate day and Return
+                        // "+ Add Day" button between the last intermediate day and Debark
                         if (!isLast && index == slots.size - 2) {
                             TextButton(
                                 onClick = {
-                                    // Insert before the return slot
-                                    val newDay = slots.size // will be renumbered
+                                    val insertAt = slots.size - 1
+                                    val newDay = slots.size
                                     slots.add(
-                                        slots.size - 1,
+                                        insertAt,
                                         ItinerarySlot(dayNumber = newDay, date = sailDate.plusDays(newDay.toLong() - 1)),
                                     )
                                     renumberSlots()
+                                    focusSlotIndex = insertAt
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -174,13 +180,23 @@ private fun ItineraryRow(
     label: String,
     placeholder: String,
     canRemove: Boolean,
+    autoFocus: Boolean = false,
     onSearchPorts: (String) -> List<CruisePort>,
     onSlotUpdated: (ItinerarySlot) -> Unit,
     onRemove: () -> Unit,
+    onFocused: () -> Unit = {},
 ) {
     var expanded by remember { mutableStateOf(false) }
     var suggestions by remember { mutableStateOf<List<CruisePort>>(emptyList()) }
     var localQuery by remember(slot.portQuery) { mutableStateOf(slot.portQuery) }
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(autoFocus) {
+        if (autoFocus) {
+            focusRequester.requestFocus()
+            onFocused()
+        }
+    }
 
     // Debounce search to avoid ANR
     LaunchedEffect(localQuery) {
@@ -220,7 +236,8 @@ private fun ItineraryRow(
                 placeholder = { Text(placeholder) },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .menuAnchor(MenuAnchorType.PrimaryEditable),
+                    .menuAnchor(MenuAnchorType.PrimaryEditable)
+                    .focusRequester(focusRequester),
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodyMedium,
             )

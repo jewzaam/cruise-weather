@@ -146,8 +146,8 @@ private fun ComparisonTable(comparisons: List<CruiseComparison>) {
             val days = ChronoUnit.DAYS.between(it.cruise.sailDate, it.cruise.returnDate) + 1
             "$days"
         }),
-        ComparisonRowData("Departure", comparisons.map { it.cruise.departurePortName }),
-        ComparisonRowData("Return", comparisons.map {
+        ComparisonRowData("Embark", comparisons.map { it.cruise.departurePortName }),
+        ComparisonRowData("Debark", comparisons.map {
             it.cruise.returnPortName ?: it.cruise.departurePortName
         }),
         ComparisonRowData("Ports of Call", comparisons.map {

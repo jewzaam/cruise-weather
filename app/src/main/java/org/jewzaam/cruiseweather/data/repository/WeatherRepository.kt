@@ -55,10 +55,19 @@ class WeatherRepository @Inject constructor(
         return PortWithWeather(port = port, summary = summary, years = years)
     }
 
+    suspend fun invalidateWeatherForPorts(portIds: List<Long>) {
+        db.withTransaction {
+            portIds.forEach { portId ->
+                weatherDao.deleteSummaryForPort(portId)
+                weatherDao.deleteWeatherYearsForPort(portId)
+            }
+        }
+    }
+
     suspend fun isFetchNeeded(portId: Long): Boolean {
         val summary = weatherDao.getSummaryForPortOnce(portId) ?: return true
-        // Stale if missing sunrise/sunset data (added in schema v3)
-        return summary.avgSunriseMinutes == 0.0
+        // Stale if fetched before sunrise/sunset was added (schema v3) — both will be 0.0
+        return summary.avgSunriseMinutes == 0.0 && summary.avgSunsetMinutes == 0.0
     }
 
     suspend fun fetchWeatherForPort(port: PortOfCall): WeatherFetchResult {

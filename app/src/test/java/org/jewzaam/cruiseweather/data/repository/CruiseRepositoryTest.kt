@@ -97,24 +97,23 @@ class CruiseRepositoryTest {
     }
 
     @Test
-    fun `saveCruise updates existing cruise and replaces departure-return ports`() = runTest {
+    fun `saveCruise updates existing cruise and updates departure-return ports in place`() = runTest {
         val existingCruise = testCruise.copy(id = 3L)
+        val existingDep = departurePorts[0].copy(id = 10L, cruiseId = 3L)
+        val existingRet = departurePorts[1].copy(id = 11L, cruiseId = 3L)
         coEvery { cruiseDao.update(any()) } returns Unit
-        coEvery { portOfCallDao.deleteDepartureReturnPorts(3L) } returns Unit
-        coEvery { portOfCallDao.insertAll(any()) } returns Unit
+        coEvery { portOfCallDao.getPortsForCruiseOnce(3L) } returns listOf(existingDep, existingRet)
+        coEvery { portOfCallDao.update(any()) } returns Unit
 
         val id = repository.saveCruise(cruise = existingCruise, departurePorts = departurePorts)
 
         assertThat(id).isEqualTo(3L)
         coVerify { cruiseDao.update(match { it.id == 3L }) }
-        coVerify { portOfCallDao.deleteDepartureReturnPorts(3L) }
-        coVerify {
-            portOfCallDao.insertAll(
-                match { ports ->
-                    ports.all { it.cruiseId == 3L && it.id == 0L }
-                },
-            )
-        }
+        // Should update existing ports, preserving their IDs
+        coVerify { portOfCallDao.update(match { it.id == 10L && it.type == PortType.DEPARTURE }) }
+        coVerify { portOfCallDao.update(match { it.id == 11L && it.type == PortType.RETURN }) }
+        // Should NOT delete and recreate
+        coVerify(exactly = 0) { portOfCallDao.deleteDepartureReturnPorts(any()) }
     }
 
     @Test

@@ -57,8 +57,8 @@ fun PortOfCallSheet(
 
     val title = when {
         existingPort != null -> when (effectiveType) {
-            PortType.DEPARTURE -> "Edit Departure"
-            PortType.RETURN -> "Edit Return"
+            PortType.DEPARTURE -> "Edit Embark Port"
+            PortType.RETURN -> "Edit Debark Port"
             PortType.SEA_DAY -> "Edit Sea Day Note"
             else -> "Edit Port of Call"
         }

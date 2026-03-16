@@ -16,9 +16,11 @@ import org.jewzaam.cruiseweather.data.local.entity.Cruise
 import org.jewzaam.cruiseweather.data.local.entity.PortOfCall
 import org.jewzaam.cruiseweather.data.local.entity.PortType
 import org.jewzaam.cruiseweather.data.repository.CruiseRepository
+import org.jewzaam.cruiseweather.data.repository.WeatherRepository
 import org.jewzaam.cruiseweather.domain.model.GeocodingCandidate
 import org.jewzaam.cruiseweather.domain.usecase.GeocodePortUseCase
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 import javax.inject.Inject
 
 data class CruiseEditUiState(
@@ -47,6 +49,7 @@ data class CruiseEditUiState(
 @HiltViewModel
 class CruiseEditViewModel @Inject constructor(
     private val cruiseRepository: CruiseRepository,
+    private val weatherRepository: WeatherRepository,
     private val geocodePortUseCase: GeocodePortUseCase,
     private val cruisePortMatcher: CruisePortMatcher,
 ) : ViewModel() {
@@ -56,6 +59,8 @@ class CruiseEditViewModel @Inject constructor(
 
     // Original port IDs loaded from DB — used to diff on save
     private var originalPortIds: Set<Long> = emptySet()
+    // Original sail date — used to detect date changes that invalidate weather
+    private var originalSailDate: LocalDate? = null
 
     fun loadCruise(cruiseId: Long) {
         viewModelScope.launch {
@@ -68,6 +73,7 @@ class CruiseEditViewModel @Inject constructor(
                 val hasDifferentReturn = cruise.returnPortName != null
                 val portsOfCall = cruiseWithPorts.portsOfCall
                 originalPortIds = portsOfCall.map { it.id }.toSet()
+                originalSailDate = cruise.sailDate
                 _uiState.update { state ->
                     state.copy(
                         isLoading = false,
@@ -119,7 +125,15 @@ class CruiseEditViewModel @Inject constructor(
     fun onNameChange(value: String) = _uiState.update { it.copy(name = value) }
     fun onCruiseLineChange(value: String) = _uiState.update { it.copy(cruiseLine = value) }
     fun onShipNameChange(value: String) = _uiState.update { it.copy(shipName = value) }
-    fun onSailDateChange(value: LocalDate) = _uiState.update { it.copy(sailDate = value) }
+    fun onSailDateChange(value: LocalDate) = _uiState.update {
+        // Shift all dates to maintain the same trip structure
+        val offset = ChronoUnit.DAYS.between(it.sailDate, value)
+        it.copy(
+            sailDate = value,
+            returnDate = it.returnDate.plusDays(offset),
+            portsOfCall = it.portsOfCall.map { port -> port.copy(date = port.date.plusDays(offset)) },
+        )
+    }
     fun onReturnDateChange(value: LocalDate) = _uiState.update { it.copy(returnDate = value) }
     fun onDateRangeChange(sailDate: LocalDate, returnDate: LocalDate) =
         _uiState.update { it.copy(sailDate = sailDate, returnDate = returnDate) }
@@ -180,6 +194,12 @@ class CruiseEditViewModel @Inject constructor(
                     deletedPortIds = deletedPortIds,
                 )
 
+                // Invalidate weather if sail date changed (dates shifted, old weather is wrong)
+                if (originalSailDate != null && originalSailDate != state.sailDate) {
+                    val allPortIds = (currentPortIds + originalPortIds).toList()
+                    weatherRepository.invalidateWeatherForPorts(allPortIds)
+                }
+
                 _uiState.update { it.copy(isLoading = false, isSaved = true, savedCruiseId = savedId) }
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, error = e.message ?: "Failed to save cruise") }
@@ -236,7 +256,23 @@ class CruiseEditViewModel @Inject constructor(
 
     // All port operations are local-only — persisted on saveCruise()
     fun addPortOfCall(port: PortOfCall) {
-        _uiState.update { it.copy(portsOfCall = it.portsOfCall + port) }
+        _uiState.update { state ->
+            // Replace any existing SEA_DAY on the same date, transferring notes
+            val existingSeaDay = state.portsOfCall.firstOrNull {
+                it.date == port.date && it.type == PortType.SEA_DAY
+            }
+            val portWithNotes = if (existingSeaDay != null && existingSeaDay.notes.isNotBlank() && port.notes.isBlank()) {
+                port.copy(notes = existingSeaDay.notes)
+            } else {
+                port
+            }
+            val filtered = if (existingSeaDay != null) {
+                state.portsOfCall.filter { it.localId != existingSeaDay.localId }
+            } else {
+                state.portsOfCall
+            }
+            state.copy(portsOfCall = filtered + portWithNotes)
+        }
     }
 
     fun updatePortOfCall(port: PortOfCall) {
@@ -327,8 +363,8 @@ class CruiseEditViewModel @Inject constructor(
         val intermediateSlots = slots.dropLast(1)
         val returnSlot = slots.last()
 
-        // Return date = sail date + total slots (Day 1 is departure, slots are Day 2..N)
-        val returnDate = state.sailDate.plusDays(slots.size.toLong())
+        // Return date = sail date + (slots - 1). E.g. 4 slots → Day 1..4 → returnDate = sailDate + 3
+        val returnDate = state.sailDate.plusDays(slots.size.toLong() - 1)
 
         // Departure port: if Day 1 was edited in the builder, update it
         val firstSlot = slots.firstOrNull()

@@ -40,3 +40,5 @@ keystore.properties
 
 # OS files
 Thumbs.db
+
+cruise_weather.db*

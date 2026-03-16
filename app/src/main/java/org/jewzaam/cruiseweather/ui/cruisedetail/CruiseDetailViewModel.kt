@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.jewzaam.cruiseweather.data.local.entity.PortOfCall
+import org.jewzaam.cruiseweather.data.local.entity.PortType
 import org.jewzaam.cruiseweather.data.local.entity.PortWeatherSummary
 import org.jewzaam.cruiseweather.data.repository.CruiseRepository
 import org.jewzaam.cruiseweather.data.repository.WeatherFetchResult
@@ -18,6 +19,7 @@ import org.jewzaam.cruiseweather.domain.model.CruiseWithPorts
 import org.jewzaam.cruiseweather.domain.model.GeocodingCandidate
 import org.jewzaam.cruiseweather.domain.usecase.FetchWeatherForCruiseUseCase
 import org.jewzaam.cruiseweather.domain.usecase.GeocodePortUseCase
+import timber.log.Timber
 import javax.inject.Inject
 
 data class CruiseDetailUiState(
@@ -40,23 +42,29 @@ class CruiseDetailViewModel @Inject constructor(
     val uiState: StateFlow<CruiseDetailUiState> = _uiState
 
     private var collectJob: Job? = null
-    private var hasAutoFetchedForCruiseId: Long? = null
 
     fun loadCruise(cruiseId: Long) {
         collectJob?.cancel()
         collectJob = viewModelScope.launch {
+            var hasAutoFetched = false
+            Timber.d("loadCruise(%d) started, new collect session", cruiseId)
             cruiseRepository.getCruiseWithPorts(cruiseId).collect { cruiseWithPorts ->
                 if (cruiseWithPorts == null) return@collect
+                Timber.d("loadCruise(%d) emission received, hasAutoFetched=%b", cruiseId, hasAutoFetched)
                 val portWeather = buildPortWeatherMap(cruiseWithPorts)
                 _uiState.update { it.copy(cruiseWithPorts = cruiseWithPorts, portWeather = portWeather) }
-                // Auto-fetch weather on first load if any port needs data
-                if (hasAutoFetchedForCruiseId != cruiseId) {
-                    hasAutoFetchedForCruiseId = cruiseId
-                    val needsFetch = cruiseWithPorts.ports.any { port ->
+                if (!hasAutoFetched) {
+                    hasAutoFetched = true
+                    val portsNeedingFetch = cruiseWithPorts.ports.filter { port ->
                         port.latitude != null && weatherRepository.isFetchNeeded(port.id)
                     }
-                    if (needsFetch) {
+                    if (portsNeedingFetch.isNotEmpty()) {
+                        Timber.d("Auto-fetch triggered for %d ports: %s",
+                            portsNeedingFetch.size,
+                            portsNeedingFetch.joinToString { "${it.id}:${it.portName}" })
                         fetchWeather()
+                    } else {
+                        Timber.d("No auto-fetch needed, all ports have fresh weather")
                     }
                 }
             }
@@ -74,6 +82,8 @@ class CruiseDetailViewModel @Inject constructor(
 
     fun fetchWeather(forceRefresh: Boolean = false) {
         val cruiseWithPorts = _uiState.value.cruiseWithPorts ?: return
+        Timber.d("fetchWeather called, forceRefresh=%b, caller=%s",
+            forceRefresh, Throwable().stackTrace[1])
         viewModelScope.launch {
             _uiState.update { it.copy(isFetchingWeather = true, fetchMessage = null, error = null) }
             val results = fetchWeatherUseCase(
@@ -97,8 +107,19 @@ class CruiseDetailViewModel @Inject constructor(
     fun addPortOfCall(port: PortOfCall) {
         viewModelScope.launch {
             try {
-                val id = cruiseRepository.addPortOfCall(port)
-                fetchWeatherForPort(port.copy(id = id))
+                // Check for existing SEA_DAY on the same date — transfer notes and remove it
+                val existingSeaDay = _uiState.value.cruiseWithPorts?.ports
+                    ?.firstOrNull { it.date == port.date && it.type == PortType.SEA_DAY }
+                val portWithNotes = if (existingSeaDay != null && existingSeaDay.notes.isNotBlank() && port.notes.isBlank()) {
+                    port.copy(notes = existingSeaDay.notes)
+                } else {
+                    port
+                }
+                val id = cruiseRepository.addPortOfCall(portWithNotes)
+                if (existingSeaDay != null) {
+                    cruiseRepository.deletePortOfCall(existingSeaDay.id)
+                }
+                fetchWeatherForPort(portWithNotes.copy(id = id))
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message ?: "Failed to add port") }
             }

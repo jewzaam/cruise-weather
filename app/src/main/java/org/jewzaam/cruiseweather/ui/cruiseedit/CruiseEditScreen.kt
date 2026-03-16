@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -40,12 +41,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.jewzaam.cruiseweather.data.local.entity.CruiseLine
 import org.jewzaam.cruiseweather.data.local.entity.PortOfCall
+import org.jewzaam.cruiseweather.data.local.entity.PortType
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -77,6 +80,7 @@ fun CruiseEditScreen(
     var editingPort by remember { mutableStateOf<PortOfCall?>(null) }
     var showSailDatePicker by remember { mutableStateOf(false) }
     var showItineraryBuilder by remember { mutableStateOf(false) }
+    var convertingSeaDay by remember { mutableStateOf<PortOfCall?>(null) }
 
     LaunchedEffect(uiState.isSaved) {
         if (uiState.isSaved) {
@@ -212,7 +216,7 @@ fun CruiseEditScreen(
             if (!isNewCruise && uiState.portsOfCall.isNotEmpty()) {
                 val totalDays = ChronoUnit.DAYS.between(uiState.sailDate, uiState.returnDate) + 1
                 Text(
-                    text = "Return: ${DATE_FORMAT.format(uiState.returnDate)} ($totalDays days)",
+                    text = "Debark: ${DATE_FORMAT.format(uiState.returnDate)} ($totalDays days)",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 4.dp),
@@ -235,35 +239,72 @@ fun CruiseEditScreen(
                     onClick = { showItineraryBuilder = true },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Build Itinerary")
+                    Text("Edit Itinerary")
                 }
             } else {
                 // Show departure
                 if (uiState.departurePortName.isNotBlank()) {
                     ListItem(
                         headlineContent = { Text(uiState.departurePortName) },
-                        supportingContent = { Text("Day 1  \u2022  ${uiState.sailDate}  \u2022  Departure") },
+                        supportingContent = { Text("Day 1  \u2022  ${uiState.sailDate}  \u2022  Embark") },
                     )
                     HorizontalDivider()
                 }
 
-                // Show intermediate ports
+                // Show intermediate ports and sea days
                 uiState.portsOfCall.forEach { port ->
                     val dayOfCruise = ChronoUnit.DAYS.between(uiState.sailDate, port.date) + 1
-                    val displayName = port.portName
-                    val geocodeStatus = if (port.latitude != null) "geocoded" else "not geocoded"
-                    ListItem(
-                        headlineContent = { Text(displayName) },
-                        supportingContent = { Text("Day $dayOfCruise  \u2022  ${port.date}  \u2022  $geocodeStatus") },
-                        trailingContent = {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = "Edit $displayName",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        },
-                        modifier = Modifier.clickable { editingPort = port },
-                    )
+                    if (port.type == PortType.SEA_DAY) {
+                        // Sea day row — matches detail screen's SeaDayRow style
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp, vertical = 2.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Day $dayOfCruise  \u2022  ${DATE_FORMAT.format(port.date)}  \u2022  At Sea",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = { editingPort = port }) {
+                                    Text("Note", style = MaterialTheme.typography.labelSmall)
+                                }
+                                TextButton(onClick = { convertingSeaDay = port }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "Add port on day $dayOfCruise",
+                                        modifier = Modifier.padding(end = 4.dp),
+                                    )
+                                    Text("Port", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                            if (port.notes.isNotBlank()) {
+                                Text(
+                                    text = port.notes,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(start = 8.dp, bottom = 4.dp),
+                                )
+                            }
+                        }
+                    } else {
+                        val displayName = port.portName
+                        val geocodeStatus = if (port.latitude != null) "geocoded" else "not geocoded"
+                        ListItem(
+                            headlineContent = { Text(displayName) },
+                            supportingContent = { Text("Day $dayOfCruise  \u2022  ${port.date}  \u2022  $geocodeStatus") },
+                            trailingContent = {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = "Edit $displayName",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            modifier = Modifier.clickable { editingPort = port },
+                        )
+                    }
                     HorizontalDivider()
                 }
 
@@ -277,14 +318,14 @@ fun CruiseEditScreen(
                     val totalDays = ChronoUnit.DAYS.between(uiState.sailDate, uiState.returnDate) + 1
                     ListItem(
                         headlineContent = { Text(returnDisplay) },
-                        supportingContent = { Text("Day $totalDays  \u2022  ${uiState.returnDate}  \u2022  Return") },
+                        supportingContent = { Text("Day $totalDays  \u2022  ${uiState.returnDate}  \u2022  Debark") },
                     )
                     HorizontalDivider()
                 }
 
                 Row(modifier = Modifier.padding(top = 8.dp)) {
                     OutlinedButton(onClick = { showItineraryBuilder = true }) {
-                        Text("Rebuild Itinerary")
+                        Text("Edit Itinerary")
                     }
                     if (!isNewCruise) {
                         Spacer(modifier = Modifier.weight(1f))
@@ -319,9 +360,23 @@ fun CruiseEditScreen(
             sailDate = uiState.sailDate,
             returnDate = uiState.returnDate,
             existingPort = port,
+            portType = port.type,
             onSave = { updated -> viewModel.updatePortOfCall(updated) },
             onDelete = { deleted -> viewModel.deletePortOfCall(deleted) },
             onDismiss = { editingPort = null },
+            onGeocode = { query -> viewModel.geocodeQuery(query) },
+        )
+    }
+
+    // Convert sea day to port — opens a PORT_OF_CALL sheet on that date
+    convertingSeaDay?.let { seaDay ->
+        PortOfCallSheet(
+            cruiseId = uiState.cruiseId,
+            sailDate = uiState.sailDate,
+            returnDate = uiState.returnDate,
+            lastPortDate = seaDay.date.minusDays(1),
+            onSave = { port -> viewModel.addPortOfCall(port) },
+            onDismiss = { convertingSeaDay = null },
             onGeocode = { query -> viewModel.geocodeQuery(query) },
         )
     }

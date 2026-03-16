@@ -14,6 +14,9 @@ interface PortOfCallDao {
     @Query("SELECT * FROM ports_of_call WHERE cruiseId = :cruiseId ORDER BY date ASC, sortOrder ASC")
     fun getPortsForCruise(cruiseId: Long): Flow<List<PortOfCall>>
 
+    @Query("SELECT * FROM ports_of_call WHERE cruiseId = :cruiseId ORDER BY date ASC, sortOrder ASC")
+    suspend fun getPortsForCruiseOnce(cruiseId: Long): List<PortOfCall>
+
     @Query("SELECT * FROM ports_of_call WHERE id = :portId")
     suspend fun getPortById(portId: Long): PortOfCall?
 

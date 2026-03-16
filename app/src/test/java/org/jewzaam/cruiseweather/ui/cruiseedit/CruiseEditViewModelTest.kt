@@ -16,9 +16,11 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.jewzaam.cruiseweather.cruise
 import org.jewzaam.cruiseweather.cruiseWithPorts
-import org.jewzaam.cruiseweather.data.local.entity.PortType
+import org.jewzaam.cruiseweather.data.local.cruiseports.CruisePort
 import org.jewzaam.cruiseweather.data.local.cruiseports.CruisePortMatcher
+import org.jewzaam.cruiseweather.data.local.entity.PortType
 import org.jewzaam.cruiseweather.data.repository.CruiseRepository
+import org.jewzaam.cruiseweather.data.repository.WeatherRepository
 import org.jewzaam.cruiseweather.domain.usecase.GeocodePortUseCase
 import org.jewzaam.cruiseweather.geocodingCandidate
 import org.jewzaam.cruiseweather.port
@@ -31,6 +33,7 @@ import java.time.LocalDate
 class CruiseEditViewModelTest {
 
     private val cruiseRepository = mockk<CruiseRepository>(relaxed = true)
+    private val weatherRepository = mockk<WeatherRepository>(relaxed = true)
     private val geocodePortUseCase = mockk<GeocodePortUseCase>()
     private val cruisePortMatcher = mockk<CruisePortMatcher>()
     private val testDispatcher = StandardTestDispatcher()
@@ -42,6 +45,7 @@ class CruiseEditViewModelTest {
         every { cruisePortMatcher.search(any(), any()) } returns emptyList()
         viewModel = CruiseEditViewModel(
             cruiseRepository = cruiseRepository,
+            weatherRepository = weatherRepository,
             geocodePortUseCase = geocodePortUseCase,
             cruisePortMatcher = cruisePortMatcher,
         )
@@ -77,6 +81,30 @@ class CruiseEditViewModelTest {
         val date = LocalDate.of(2027, 1, 15)
         viewModel.onSailDateChange(date)
         assertThat(viewModel.uiState.value.sailDate).isEqualTo(date)
+    }
+
+    @Test
+    fun `onSailDateChange shifts returnDate and port dates by same offset`() {
+        val sailDate = LocalDate.of(2026, 12, 14)
+        val returnDate = LocalDate.of(2026, 12, 21)
+        viewModel.onSailDateChange(sailDate)
+        viewModel.onReturnDateChange(returnDate)
+        viewModel.onDepartureChanged("Miami", geocodingCandidate())
+
+        val seaDay = port(portName = "At Sea", date = LocalDate.of(2026, 12, 15),
+            type = PortType.SEA_DAY, latitude = null, longitude = null)
+        val portDay = port(portName = "Cozumel", date = LocalDate.of(2026, 12, 16))
+        viewModel.addPortOfCall(seaDay)
+        viewModel.addPortOfCall(portDay)
+
+        // Move sail date forward by 5 days
+        viewModel.onSailDateChange(LocalDate.of(2026, 12, 19))
+        val state = viewModel.uiState.value
+
+        assertThat(state.sailDate).isEqualTo(LocalDate.of(2026, 12, 19))
+        assertThat(state.returnDate).isEqualTo(LocalDate.of(2026, 12, 26))
+        assertThat(state.portsOfCall[0].date).isEqualTo(LocalDate.of(2026, 12, 20))
+        assertThat(state.portsOfCall[1].date).isEqualTo(LocalDate.of(2026, 12, 21))
     }
 
     @Test
@@ -331,6 +359,113 @@ class CruiseEditViewModelTest {
         viewModel.saveCruise() // sets error
         viewModel.clearError()
         assertThat(viewModel.uiState.value.error).isNull()
+    }
+
+    // --- saveItinerary ---
+
+    @Test
+    fun `saveItinerary sets returnDate to last slot date`() {
+        val sailDate = LocalDate.of(2026, 12, 14)
+        viewModel.onSailDateChange(sailDate)
+        viewModel.onDepartureChanged("Miami", geocodingCandidate())
+
+        val slots = listOf(
+            ItinerarySlot(dayNumber = 1, date = sailDate, portQuery = "Miami",
+                resolvedPort = CruisePort("dep", "Miami", 25.77, -80.19, "", emptyList())),
+            ItinerarySlot(dayNumber = 2, date = sailDate.plusDays(1)),
+            ItinerarySlot(dayNumber = 3, date = sailDate.plusDays(2)),
+            ItinerarySlot(dayNumber = 4, date = sailDate.plusDays(3), portQuery = ""),
+        )
+        viewModel.saveItinerary(slots)
+
+        // 4 slots: Day 1 = Dec 14, Day 4 = Dec 17. returnDate should be Dec 17.
+        assertThat(viewModel.uiState.value.returnDate).isEqualTo(LocalDate.of(2026, 12, 17))
+    }
+
+    @Test
+    fun `saveItinerary creates SEA_DAY ports for blank intermediate slots`() {
+        val sailDate = LocalDate.of(2026, 12, 14)
+        viewModel.onSailDateChange(sailDate)
+        viewModel.onDepartureChanged("Miami", geocodingCandidate())
+
+        val slots = listOf(
+            ItinerarySlot(dayNumber = 1, date = sailDate, portQuery = "Miami",
+                resolvedPort = CruisePort("dep", "Miami", 25.77, -80.19, "", emptyList())),
+            ItinerarySlot(dayNumber = 2, date = sailDate.plusDays(1)), // blank = sea day
+            ItinerarySlot(dayNumber = 3, date = sailDate.plusDays(2), portQuery = "Cozumel",
+                resolvedPort = CruisePort("coz", "Cozumel", 20.43, -86.92, "", emptyList())),
+            ItinerarySlot(dayNumber = 4, date = sailDate.plusDays(3), portQuery = ""),
+        )
+        viewModel.saveItinerary(slots)
+
+        val ports = viewModel.uiState.value.portsOfCall
+        val seaDays = ports.filter { it.type == PortType.SEA_DAY }
+        assertThat(seaDays).hasSize(1)
+        assertThat(seaDays[0].portName).isEqualTo("At Sea")
+        assertThat(seaDays[0].date).isEqualTo(sailDate.plusDays(1))
+    }
+
+    @Test
+    fun `saveItinerary preserves PORT_OF_CALL for resolved slots`() {
+        val sailDate = LocalDate.of(2026, 12, 14)
+        viewModel.onSailDateChange(sailDate)
+        viewModel.onDepartureChanged("Miami", geocodingCandidate())
+
+        val slots = listOf(
+            ItinerarySlot(dayNumber = 1, date = sailDate, portQuery = "Miami",
+                resolvedPort = CruisePort("dep", "Miami", 25.77, -80.19, "", emptyList())),
+            ItinerarySlot(dayNumber = 2, date = sailDate.plusDays(1), portQuery = "Cozumel",
+                resolvedPort = CruisePort("coz", "Cozumel", 20.43, -86.92, "", emptyList())),
+            ItinerarySlot(dayNumber = 3, date = sailDate.plusDays(2), portQuery = ""),
+        )
+        viewModel.saveItinerary(slots)
+
+        val portOfCalls = viewModel.uiState.value.portsOfCall.filter { it.type == PortType.PORT_OF_CALL }
+        assertThat(portOfCalls).hasSize(1)
+        assertThat(portOfCalls[0].portName).isEqualTo("Cozumel")
+        assertThat(portOfCalls[0].latitude).isEqualTo(20.43)
+        assertThat(portOfCalls[0].longitude).isEqualTo(-86.92)
+    }
+
+    @Test
+    fun `portsOfCall includes both sea days and ports after saveItinerary`() {
+        val sailDate = LocalDate.of(2026, 12, 14)
+        viewModel.onSailDateChange(sailDate)
+        viewModel.onDepartureChanged("Miami", geocodingCandidate())
+
+        val slots = listOf(
+            ItinerarySlot(dayNumber = 1, date = sailDate, portQuery = "Miami",
+                resolvedPort = CruisePort("dep", "Miami", 25.77, -80.19, "", emptyList())),
+            ItinerarySlot(dayNumber = 2, date = sailDate.plusDays(1)), // sea day
+            ItinerarySlot(dayNumber = 3, date = sailDate.plusDays(2), portQuery = "Cozumel",
+                resolvedPort = CruisePort("coz", "Cozumel", 20.43, -86.92, "", emptyList())),
+            ItinerarySlot(dayNumber = 4, date = sailDate.plusDays(3), portQuery = ""),
+        )
+        viewModel.saveItinerary(slots)
+
+        val ports = viewModel.uiState.value.portsOfCall
+        assertThat(ports).hasSize(2)
+        val types = ports.map { it.type }.toSet()
+        assertThat(types).containsExactly(PortType.SEA_DAY, PortType.PORT_OF_CALL)
+    }
+
+    // --- addPortOfCall replaces SEA_DAY ---
+
+    @Test
+    fun `addPortOfCall replaces sea day on same date and transfers notes`() {
+        val date = LocalDate.of(2026, 12, 15)
+        val seaDay = port(portName = "At Sea", date = date, type = PortType.SEA_DAY,
+            latitude = null, longitude = null, notes = "Rest day")
+        viewModel.addPortOfCall(seaDay)
+
+        val newPort = port(portName = "Cozumel", date = date, type = PortType.PORT_OF_CALL)
+        viewModel.addPortOfCall(newPort)
+
+        val ports = viewModel.uiState.value.portsOfCall
+        assertThat(ports).hasSize(1)
+        assertThat(ports[0].type).isEqualTo(PortType.PORT_OF_CALL)
+        assertThat(ports[0].portName).isEqualTo("Cozumel")
+        assertThat(ports[0].notes).isEqualTo("Rest day")
     }
 
     // --- geocodeQuery ---

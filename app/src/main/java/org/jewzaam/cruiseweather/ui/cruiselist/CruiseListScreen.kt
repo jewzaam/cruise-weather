@@ -112,7 +112,7 @@ private fun CruiseListItem(
         .joinToString(" \u2022 ")
 
     ListItem(
-        headlineContent = { Text(cruise.name) },
+        headlineContent = { Text(cruise.name, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
         supportingContent = {
             Text(
                 buildString {

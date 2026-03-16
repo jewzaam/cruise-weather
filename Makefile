@@ -1,7 +1,7 @@
 # Convenience wrapper around Gradle targets.
 # Gradle is authoritative; this Makefile just saves typing.
 
-.PHONY: build test lint check clean itest setup-check release release-bundle distribute
+.PHONY: build test lint check clean itest setup-check release release-bundle distribute emulator-start deploy-debug deploy-run
 
 build:
 	gradlew build
@@ -31,6 +31,25 @@ distribute:
 # Instrumented tests — requires connected device or emulator
 itest:
 	gradlew connectedAndroidTest
+
+# Launch the Android emulator using the first available AVD
+emulator-start:
+	@SDK_DIR=$$(grep '^sdk.dir' local.properties | sed 's/sdk.dir=//;s/\\\\//g;s/\\:/:/g'); \
+	AVD=$$("$$SDK_DIR/emulator/emulator" -list-avds 2>/dev/null | head -1); \
+	if [ -z "$$AVD" ]; then \
+		echo "FAIL: No AVDs found. Create one via Android Studio Device Manager."; exit 1; \
+	fi; \
+	echo "Starting emulator: $$AVD"; \
+	"$$SDK_DIR/emulator/emulator" -avd "$$AVD" -no-snapshot-load &
+
+# Build debug APK and install it on the connected emulator/device
+deploy-debug:
+	gradlew installDebug
+
+# Build, install, and launch the app on the connected emulator/device
+deploy-run: deploy-debug
+	@SDK_DIR=$$(grep '^sdk.dir' local.properties | sed 's/sdk.dir=//;s/\\\\//g;s/\\:/:/g'); \
+	"$$SDK_DIR/platform-tools/adb" shell am start -n org.jewzaam.cruiseweather/.MainActivity
 
 # Validate development environment setup
 setup-check:

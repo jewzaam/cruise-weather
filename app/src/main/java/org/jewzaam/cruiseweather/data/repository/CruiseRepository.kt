@@ -11,6 +11,7 @@ import org.jewzaam.cruiseweather.data.local.CruiseDao
 import org.jewzaam.cruiseweather.data.local.PortOfCallDao
 import org.jewzaam.cruiseweather.data.local.entity.Cruise
 import org.jewzaam.cruiseweather.data.local.entity.PortOfCall
+import org.jewzaam.cruiseweather.data.local.entity.PortType
 import org.jewzaam.cruiseweather.domain.model.CruiseWithPorts
 import timber.log.Timber
 import java.time.Instant
@@ -63,9 +64,16 @@ class CruiseRepository @Inject constructor(
         } else {
             cruiseDao.update(cruise.copy(updatedAt = Instant.now()))
             Timber.i("Updated cruise: id=%d name=%s", cruise.id, cruise.name)
-            portOfCallDao.deleteDepartureReturnPorts(cruise.id)
-            val portsWithId = departurePorts.map { it.copy(cruiseId = cruise.id, id = 0) }
-            portOfCallDao.insertAll(portsWithId)
+            // Update departure/return ports in place to preserve IDs (and weather data)
+            val existingPorts = portOfCallDao.getPortsForCruiseOnce(cruise.id)
+            for (newPort in departurePorts) {
+                val existing = existingPorts.firstOrNull { it.type == newPort.type }
+                if (existing != null) {
+                    portOfCallDao.update(newPort.copy(id = existing.id, cruiseId = cruise.id))
+                } else {
+                    portOfCallDao.insert(newPort.copy(cruiseId = cruise.id, id = 0))
+                }
+            }
             cruise.id
         }
         // Sync ports of call inside the same transaction
