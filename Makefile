@@ -1,39 +1,38 @@
 # Convenience wrapper around Gradle targets.
 # Gradle is authoritative; this Makefile just saves typing.
 
-.PHONY: build test lint check clean itest setup-check release release-bundle distribute emulator-start emulator-wipe deploy-debug deploy-run
+.PHONY: help build test lint check clean itest setup-check release release-bundle distribute emulator-start emulator-wipe deploy-debug deploy-run
 
-build:
+help: ## Show this help
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
+
+build: ## Build the project
 	gradlew build
 
-test:
+test: ## Run JVM unit tests
 	gradlew test
 
-lint:
+lint: ## Run Android lint
 	gradlew lint
 
-check: lint test
+check: lint test ## Run lint + test
 
-clean:
+clean: ## Clean build outputs
 	gradlew clean
 
-# Release builds
-release:
+release: ## Build release APK
 	gradlew assembleRelease
 
-release-bundle:
+release-bundle: ## Build release AAB
 	gradlew bundleRelease
 
-# Upload to Firebase App Distribution
-distribute:
+distribute: ## Build and upload to Firebase App Distribution
 	gradlew assembleRelease appDistributionUploadRelease
 
-# Instrumented tests — requires connected device or emulator
-itest:
+itest: ## Run instrumented tests - requires device/emulator
 	gradlew connectedAndroidTest
 
-# Launch the Android emulator using the first available AVD
-emulator-start:
+emulator-start: ## Launch the Android emulator
 	@SDK_DIR=$$(grep '^sdk.dir' local.properties | sed 's/sdk.dir=//;s/\\\\//g;s/\\:/:/g'); \
 	AVD=$$("$$SDK_DIR/emulator/emulator" -list-avds 2>/dev/null | head -1); \
 	if [ -z "$$AVD" ]; then \
@@ -42,8 +41,7 @@ emulator-start:
 	echo "Starting emulator: $$AVD"; \
 	"$$SDK_DIR/emulator/emulator" -avd "$$AVD" -no-snapshot-load &
 
-# Kill existing emulator, wipe data, and restart with fresh state
-emulator-wipe:
+emulator-wipe: ## Wipe emulator data and restart fresh
 	@SDK_DIR=$$(grep '^sdk.dir' local.properties | sed 's/sdk.dir=//;s/\\\\//g;s/\\:/:/g'); \
 	"$$SDK_DIR/platform-tools/adb" kill-server 2>/dev/null; \
 	AVD=$$("$$SDK_DIR/emulator/emulator" -list-avds 2>/dev/null | head -1); \
@@ -53,17 +51,14 @@ emulator-wipe:
 	echo "Wiping and restarting emulator: $$AVD"; \
 	"$$SDK_DIR/emulator/emulator" -avd "$$AVD" -no-snapshot-load -wipe-data &
 
-# Build debug APK and install it on the connected emulator/device
-deploy-debug:
+deploy-debug: ## Build and install debug APK on device/emulator
 	gradlew installDebug
 
-# Build, install, and launch the app on the connected emulator/device
-deploy-run: deploy-debug
+deploy-run: deploy-debug ## Build, install, and launch app on device/emulator
 	@SDK_DIR=$$(grep '^sdk.dir' local.properties | sed 's/sdk.dir=//;s/\\\\//g;s/\\:/:/g'); \
 	"$$SDK_DIR/platform-tools/adb" shell am start -n org.jewzaam.cruiseweather/.MainActivity
 
-# Validate development environment setup
-setup-check:
+setup-check: ## Validate development environment
 	@echo "=== Java ==="
 	@java -version 2>&1 | head -1 || (echo "FAIL: java not found" && exit 1)
 	@JAVA_VER=$$(java -version 2>&1 | head -1 | grep -oP '"(\d+)' | tr -d '"'); \
