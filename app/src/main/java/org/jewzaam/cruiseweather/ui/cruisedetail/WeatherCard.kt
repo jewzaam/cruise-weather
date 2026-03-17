@@ -187,12 +187,7 @@ fun WeatherCard(
                     if (onEdit != null) {
                         Spacer(modifier = Modifier.height(4.dp))
                         TextButton(onClick = onEdit) {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = "Edit",
-                                modifier = Modifier.padding(end = 4.dp),
-                            )
-                            Text("Edit")
+                            Text("Note")
                         }
                     }
                 }

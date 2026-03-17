@@ -1,7 +1,7 @@
 # Convenience wrapper around Gradle targets.
 # Gradle is authoritative; this Makefile just saves typing.
 
-.PHONY: build test lint check clean itest setup-check release release-bundle distribute emulator-start deploy-debug deploy-run
+.PHONY: build test lint check clean itest setup-check release release-bundle distribute emulator-start emulator-wipe deploy-debug deploy-run
 
 build:
 	gradlew build
@@ -41,6 +41,17 @@ emulator-start:
 	fi; \
 	echo "Starting emulator: $$AVD"; \
 	"$$SDK_DIR/emulator/emulator" -avd "$$AVD" -no-snapshot-load &
+
+# Kill existing emulator, wipe data, and restart with fresh state
+emulator-wipe:
+	@SDK_DIR=$$(grep '^sdk.dir' local.properties | sed 's/sdk.dir=//;s/\\\\//g;s/\\:/:/g'); \
+	"$$SDK_DIR/platform-tools/adb" kill-server 2>/dev/null; \
+	AVD=$$("$$SDK_DIR/emulator/emulator" -list-avds 2>/dev/null | head -1); \
+	if [ -z "$$AVD" ]; then \
+		echo "FAIL: No AVDs found."; exit 1; \
+	fi; \
+	echo "Wiping and restarting emulator: $$AVD"; \
+	"$$SDK_DIR/emulator/emulator" -avd "$$AVD" -no-snapshot-load -wipe-data &
 
 # Build debug APK and install it on the connected emulator/device
 deploy-debug:
