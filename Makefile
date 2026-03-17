@@ -1,7 +1,7 @@
 # Convenience wrapper around Gradle targets.
 # Gradle is authoritative; this Makefile just saves typing.
 
-.PHONY: help build test lint check clean itest setup-check release release-bundle distribute emulator-start emulator-wipe deploy-debug deploy-run
+.PHONY: help build test lint check clean itest setup-check release release-bundle distribute emulator-start emulator-stop emulator-wipe deploy-debug deploy-run
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
@@ -40,6 +40,10 @@ emulator-start: ## Launch the Android emulator
 	fi; \
 	echo "Starting emulator: $$AVD"; \
 	"$$SDK_DIR/emulator/emulator" -avd "$$AVD" -no-snapshot-load &
+
+emulator-stop: ## Kill the running emulator
+	@SDK_DIR=$$(grep '^sdk.dir' local.properties | sed 's/sdk.dir=//;s/\\\\//g;s/\\:/:/g'); \
+	"$$SDK_DIR/platform-tools/adb" emu kill 2>/dev/null || true
 
 emulator-wipe: ## Wipe emulator data and restart fresh
 	@SDK_DIR=$$(grep '^sdk.dir' local.properties | sed 's/sdk.dir=//;s/\\\\//g;s/\\:/:/g'); \
