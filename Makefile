@@ -1,7 +1,7 @@
 # Convenience wrapper around Gradle targets.
 # Gradle is authoritative; this Makefile just saves typing.
 
-.PHONY: help build test lint check clean itest setup-check release release-bundle distribute emulator-start emulator-stop emulator-wipe deploy-debug deploy-run
+.PHONY: help build test lint check clean itest setup-check release release-bundle distribute emulator-start emulator-start-debug emulator-stop emulator-wipe emulator-wipe-debug deploy-debug deploy-run
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
@@ -39,7 +39,16 @@ emulator-start: ## Launch the Android emulator
 		echo "FAIL: No AVDs found. Create one via Android Studio Device Manager."; exit 1; \
 	fi; \
 	echo "Starting emulator: $$AVD"; \
-	"$$SDK_DIR/emulator/emulator" -avd "$$AVD" -no-snapshot-load &
+	"$$SDK_DIR/emulator/emulator" -avd "$$AVD" -no-snapshot-load </dev/null >/dev/null 2>&1 &
+
+emulator-start-debug: ## Launch emulator in foreground with full output
+	@SDK_DIR=$$(grep '^sdk.dir' local.properties | sed 's/sdk.dir=//;s/\\\\//g;s/\\:/:/g'); \
+	AVD=$$("$$SDK_DIR/emulator/emulator" -list-avds 2>/dev/null | head -1); \
+	if [ -z "$$AVD" ]; then \
+		echo "FAIL: No AVDs found. Create one via Android Studio Device Manager."; exit 1; \
+	fi; \
+	echo "Starting emulator: $$AVD"; \
+	"$$SDK_DIR/emulator/emulator" -avd "$$AVD" -no-snapshot-load
 
 emulator-stop: ## Kill the running emulator
 	@SDK_DIR=$$(grep '^sdk.dir' local.properties | sed 's/sdk.dir=//;s/\\\\//g;s/\\:/:/g'); \
@@ -53,7 +62,17 @@ emulator-wipe: ## Wipe emulator data and restart fresh
 		echo "FAIL: No AVDs found."; exit 1; \
 	fi; \
 	echo "Wiping and restarting emulator: $$AVD"; \
-	"$$SDK_DIR/emulator/emulator" -avd "$$AVD" -no-snapshot-load -wipe-data &
+	"$$SDK_DIR/emulator/emulator" -avd "$$AVD" -no-snapshot-load -wipe-data </dev/null >/dev/null 2>&1 &
+
+emulator-wipe-debug: ## Wipe emulator data and restart in foreground with full output
+	@SDK_DIR=$$(grep '^sdk.dir' local.properties | sed 's/sdk.dir=//;s/\\\\//g;s/\\:/:/g'); \
+	"$$SDK_DIR/platform-tools/adb" kill-server 2>/dev/null; \
+	AVD=$$("$$SDK_DIR/emulator/emulator" -list-avds 2>/dev/null | head -1); \
+	if [ -z "$$AVD" ]; then \
+		echo "FAIL: No AVDs found."; exit 1; \
+	fi; \
+	echo "Wiping and restarting emulator: $$AVD"; \
+	"$$SDK_DIR/emulator/emulator" -avd "$$AVD" -no-snapshot-load -wipe-data
 
 deploy-debug: ## Build and install debug APK on device/emulator
 	gradlew installDebug
