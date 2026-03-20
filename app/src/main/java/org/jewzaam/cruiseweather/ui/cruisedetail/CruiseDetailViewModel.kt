@@ -7,6 +7,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.jewzaam.cruiseweather.data.local.entity.PortOfCall
@@ -35,7 +36,7 @@ class CruiseDetailViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CruiseDetailUiState())
-    val uiState: StateFlow<CruiseDetailUiState> = _uiState
+    val uiState: StateFlow<CruiseDetailUiState> = _uiState.asStateFlow()
 
     private var collectJob: Job? = null
 

@@ -173,9 +173,10 @@ class CruiseEditViewModel @Inject constructor(
 
                 // Build return port
                 val lastSlot = slots.last()
-                val hasDifferentReturn = lastSlot.portQuery.isNotBlank() && lastSlot.resolvedPort != null
-                    && lastSlot.resolvedPort.displayName != depPort.displayName
-                val returnPortName = if (hasDifferentReturn) lastSlot.resolvedPort!!.displayName else null
+                val retResolvedPort = lastSlot.resolvedPort
+                val hasDifferentReturn = lastSlot.portQuery.isNotBlank() && retResolvedPort != null
+                    && retResolvedPort.displayName != depPort.displayName
+                val returnPortName = if (hasDifferentReturn) retResolvedPort?.displayName else null
 
                 val cruise = Cruise(
                     id = state.cruiseId,
@@ -197,13 +198,12 @@ class CruiseEditViewModel @Inject constructor(
                     resolvedDisplayName = depPort.displayName, sortOrder = 0,
                     notes = firstSlot.notes,
                 ))
-                if (hasDifferentReturn) {
-                    val retPort = lastSlot.resolvedPort!!
+                if (hasDifferentReturn && retResolvedPort != null) {
                     departurePorts.add(PortOfCall(
-                        cruiseId = cruise.id, portName = retPort.displayName,
+                        cruiseId = cruise.id, portName = retResolvedPort.displayName,
                         date = returnDate, type = PortType.RETURN,
-                        latitude = retPort.latitude, longitude = retPort.longitude,
-                        resolvedDisplayName = retPort.displayName, sortOrder = Int.MAX_VALUE,
+                        latitude = retResolvedPort.latitude, longitude = retResolvedPort.longitude,
+                        resolvedDisplayName = retResolvedPort.displayName, sortOrder = Int.MAX_VALUE,
                         notes = lastSlot.notes,
                     ))
                 } else {

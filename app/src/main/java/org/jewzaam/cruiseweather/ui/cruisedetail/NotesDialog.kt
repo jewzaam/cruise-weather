@@ -18,11 +18,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.jewzaam.cruiseweather.data.local.entity.PortOfCall
-import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
 import java.time.temporal.ChronoUnit
 
-private val DATE_FORMAT = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)
+private val DATE_FORMAT = org.jewzaam.cruiseweather.ui.util.DateFormatters.MEDIUM_DATE
 
 @Composable
 fun NotesDialog(

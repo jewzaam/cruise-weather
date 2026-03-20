@@ -49,7 +49,7 @@ fun WeatherCard(
     summary: PortWeatherSummary?,
     dayNumber: Int,
     isExpanded: Boolean = false,
-    onEdit: (() -> Unit)? = null,
+    onNote: (() -> Unit)? = null,
     scrollState: ScrollState? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -154,9 +154,10 @@ fun WeatherCard(
             }
 
             // Notes preview (collapsed — show first line if present)
-            if (!isExpanded && !port?.notes.isNullOrBlank()) {
+            val notesText = port?.notes?.takeIf { it.isNotBlank() }
+            if (!isExpanded && notesText != null) {
                 Text(
-                    text = port!!.notes.lines().first(),
+                    text = notesText.lines().first(),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -172,21 +173,22 @@ fun WeatherCard(
                     }
                     // Notes section
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                    if (port?.notes.isNullOrBlank()) {
+                    val expandedNotes = port?.notes?.takeIf { it.isNotBlank() }
+                    if (expandedNotes != null) {
+                        Text(
+                            text = expandedNotes,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    } else {
                         Text(
                             text = "No notes",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                    } else {
-                        Text(
-                            text = port!!.notes,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
                     }
-                    if (onEdit != null) {
+                    if (onNote != null) {
                         Spacer(modifier = Modifier.height(4.dp))
-                        TextButton(onClick = onEdit) {
+                        TextButton(onClick = onNote) {
                             Text("Note")
                         }
                     }

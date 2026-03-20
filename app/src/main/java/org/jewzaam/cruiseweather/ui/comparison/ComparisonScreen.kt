@@ -36,11 +36,10 @@ import org.jewzaam.cruiseweather.data.local.entity.Cruise
 import org.jewzaam.cruiseweather.data.local.entity.PortType
 import org.jewzaam.cruiseweather.domain.model.CruiseComparison
 import org.jewzaam.cruiseweather.ui.components.LoadingOverlay
-import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
+
 import java.time.temporal.ChronoUnit
 
-private val DATE_FORMAT = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)
+private val DATE_FORMAT = org.jewzaam.cruiseweather.ui.util.DateFormatters.MEDIUM_DATE
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
